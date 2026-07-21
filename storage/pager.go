@@ -14,6 +14,7 @@ import (
 type Pager struct {
 	file     *os.File
 	numPages uint32
+	pool     *BufferPool
 }
 
 // Opens (or creates) the database file at path and returns a Pager
@@ -35,14 +36,19 @@ func Open(path string) (*Pager, error) {
 		return nil, fmt.Errorf("corrupt db file: size %d is not a multiple of page size %d", info.Size(), PageSize)
 	}
 
-	return &Pager{
+	p := &Pager{
 		file:     f,
 		numPages: uint32(info.Size() / PageSize),
-	}, nil
+	}
+	p.pool = NewBufferPool(64, p.readPageDisk, p.writePageDisk)
+	return p, nil
 }
 
 // Close flushes and closes the underlying file.
 func (p *Pager) Close() error {
+	if err := p.Flush(); err != nil {
+		return err
+	}
 	if err := p.file.Sync(); err != nil {
 		return err
 	}
@@ -57,10 +63,11 @@ func (p *Pager) AllocatePage() (*Page, error) {
 	id := p.numPages
 	page := NewPage(id)
 
-	if err := p.WritePage(page); err != nil {
+	p.numPages++
+	if err := p.pool.Put(page, true); err != nil {
+		p.numPages--
 		return nil, err
 	}
-	p.numPages++
 	return page, nil
 }
 
@@ -70,6 +77,18 @@ func (p *Pager) ReadPage(id uint32) (*Page, error) {
 		return nil, fmt.Errorf("page %d does not exist (numPages=%d)", id, p.numPages)
 	}
 
+	return p.pool.Get(id)
+}
+
+// WritePage writes a page's in-memory contents back to its slot on disk.
+func (p *Pager) WritePage(page *Page) error {
+	if page.ID >= p.numPages {
+		return fmt.Errorf("page %d does not exist (numPages=%d)", page.ID, p.numPages)
+	}
+	return p.pool.Put(page, true)
+}
+
+func (p *Pager) readPageDisk(id uint32) (*Page, error) {
 	page := &Page{ID: id}
 	offset := int64(id) * PageSize
 	if _, err := p.file.ReadAt(page.Data[:], offset); err != nil {
@@ -78,14 +97,16 @@ func (p *Pager) ReadPage(id uint32) (*Page, error) {
 	return page, nil
 }
 
-// WritePage writes a page's in-memory contents back to its slot on disk.
-func (p *Pager) WritePage(page *Page) error {
+func (p *Pager) writePageDisk(page *Page) error {
 	offset := int64(page.ID) * PageSize
 	if _, err := p.file.WriteAt(page.Data[:], offset); err != nil {
 		return fmt.Errorf("writing page %d: %w", page.ID, err)
 	}
 	return nil
 }
+
+// Flush writes all dirty cached pages to disk.
+func (p *Pager) Flush() error { return p.pool.Flush() }
 
 // NumPages returns how many pages currently exist in the file.
 func (p *Pager) NumPages() uint32 {
