@@ -122,7 +122,7 @@ ORDER BY active;
 ```
 
 `SUM` and `AVG` require numeric columns. `COUNT(*)` counts rows; other
-aggregates ignore NULL values. A naive nested-loop inner join is supported:
+aggregates ignore NULL values. Equality inner joins use a hash join:
 
 ```sql
 SELECT users.name, orders.total FROM users JOIN orders
@@ -132,6 +132,9 @@ ON users.id = orders.user_id;
 `INNER JOIN` is accepted too. Multiple semicolon-separated statements in one
 request execute as a transaction; row changes are rolled back if a statement
 fails.
+
+`UPDATE ... FROM` and outer joins are intentionally unsupported; use a
+`SELECT`/join followed by separate updates when needed.
 
 ### `INSERT`
 

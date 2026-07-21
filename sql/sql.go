@@ -50,6 +50,15 @@ func Lex(input string) ([]Token, error) {
 			continue
 		}
 		c := input[i]
+		if c == '-' && i+1 < len(input) && (unicode.IsDigit(rune(input[i+1])) || input[i+1] == '.') {
+			start := i
+			i++
+			for i < len(input) && (unicode.IsDigit(rune(input[i])) || input[i] == '.') {
+				i++
+			}
+			out = append(out, Token{Number, input[start:i]})
+			continue
+		}
 		if c == '?' {
 			out = append(out, Token{Parameter, fmt.Sprintf("$%d", countParameters(out))})
 			i++
@@ -1749,9 +1758,15 @@ func (e *Executor) selectRows(q Select) (Result, error) {
 		if scanErr != nil {
 			return Result{}, scanErr
 		}
+		buckets := make(map[string][]kv.Row, len(jr))
+		for _, b := range jr {
+			key := fmt.Sprintf("%T:%#v", lookup(b, q.JoinRight), lookup(b, q.JoinRight))
+			buckets[key] = append(buckets[key], b)
+		}
 		var joined []kv.Row
 		for _, a := range rows {
-			for _, b := range jr {
+			key := fmt.Sprintf("%T:%#v", lookup(a, q.JoinLeft), lookup(a, q.JoinLeft))
+			for _, b := range buckets[key] {
 				if compare(lookup(a, q.JoinLeft), lookup(b, q.JoinRight)) == 0 {
 					n := kv.Row{}
 					for k, v := range a {
