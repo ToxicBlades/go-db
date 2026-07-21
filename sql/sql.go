@@ -1076,6 +1076,22 @@ func (e *Executor) commit() (Result, error) {
 	if !e.inTransaction() {
 		return Result{}, fmt.Errorf("no transaction in progress")
 	}
+	for _, state := range e.tx.tables {
+		for key, write := range state.writes {
+			if write.deleted {
+				if err := state.t.Delete(key); err != nil {
+					return Result{}, err
+				}
+			}
+		}
+		for key, write := range state.writes {
+			if !write.deleted {
+				if err := state.t.Insert(key, write.row); err != nil {
+					return Result{}, err
+				}
+			}
+		}
+	}
 	e.tx.status = 0
 	e.tx = nil
 	return Result{}, nil
@@ -1360,8 +1376,10 @@ func (e *Executor) update(q Update) (Result, error) {
 			r[k] = v
 		}
 		key := fmt.Sprint(r[t.Schema().Columns[0].Name])
-		if err = t.Insert(key, r); err != nil {
-			return Result{Affected: n}, err
+		if e.tx == nil {
+			if err = t.Insert(key, r); err != nil {
+				return Result{Affected: n}, err
+			}
 		}
 		e.recordWrite(t, key, r, false)
 		n++
@@ -1383,8 +1401,10 @@ func (e *Executor) delete(q Delete) (Result, error) {
 			continue
 		}
 		key := fmt.Sprint(r[t.Schema().Columns[0].Name])
-		if err = t.Delete(key); err != nil {
-			return Result{Affected: n}, err
+		if e.tx == nil {
+			if err = t.Delete(key); err != nil {
+				return Result{Affected: n}, err
+			}
 		}
 		e.recordWrite(t, key, nil, true)
 		n++
@@ -1547,10 +1567,11 @@ func (e *Executor) insert(q Insert) (Result, error) {
 			}
 		}
 	}
-	if err = t.Insert(fmt.Sprint(key), r); err != nil {
+	if e.tx != nil {
+		e.recordWrite(t, fmt.Sprint(key), r, false)
+	} else if err = t.Insert(fmt.Sprint(key), r); err != nil {
 		return Result{}, err
 	}
-	e.recordWrite(t, fmt.Sprint(key), r, false)
 	return Result{Affected: 1}, nil
 }
 func coerceValue(v any, typ kv.ColumnType) (any, error) {

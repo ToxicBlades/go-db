@@ -15,8 +15,9 @@
 - [x] **Read-your-writes** — overlay a transaction's uncommitted inserts,
   updates, and deletes on snapshot reads without exposing them to other
   transactions.
-- [ ] **Atomic commit** — append a transaction's writes as one commit unit,
-  make them visible only after commit, and discard pending writes on rollback.
+- [x] **Atomic commit** — stage a transaction's writes and apply them at
+  `COMMIT`; make them visible only after commit, and discard staged writes on
+  rollback. The underlying WAL batch/commit marker is still future work.
 - [ ] **Durable transaction metadata** — extend the WAL with transaction IDs,
   commit records, and recovery rules for committed versus incomplete batches.
 - [ ] **Concurrent transactions** — allow independent client transactions to
