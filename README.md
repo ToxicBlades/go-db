@@ -140,22 +140,26 @@ The SQL client prints result sets as aligned tables:
 ```text
 go-db/
 ├── cmd/go-db/main.go       # SQL client, server, and backup/restore commands
-├── db/                     # database files and sidecars, including catalog
+├── examples/basic/         # Go API example
 ├── kv/
-│   ├── catalog.go         # durable table metadata
-│   ├── btree.go           # B+Tree index and persistence
-│   ├── store.go           # append-only records and store operations
-│   ├── table.go           # typed schemas and rows
-│   └── wal.go             # write-ahead log and recovery
-├── server/server.go       # newline-delimited TCP/JSON protocol
-├── sql/sql.go             # SQL lexer, parser, and executor
+│   ├── backup.go           # database backup and restore
+│   ├── btree.go            # B+Tree index and persistence
+│   ├── catalog.go          # durable table metadata
+│   ├── store.go            # append-only records and store operations
+│   ├── table.go            # typed schemas, rows, and secondary indexes
+│   └── wal.go              # write-ahead log and recovery
+├── server/                 # newline-delimited TCP/JSON protocol
+├── sql/                    # SQL lexer, parser, and executor
 ├── storage/
-│   ├── buffer_pool.go     # LRU page cache
-│   ├── page.go            # page representation and layout
-│   └── pager.go           # database-file page I/O
-├── seed.sql               # optional startup seed data
-├── Makefile
-└── README.md
+│   ├── buffer_pool.go      # LRU page cache
+│   ├── page.go             # page representation and layout
+│   └── pager.go            # database-file page I/O
+├── SQL_COMMANDS.md        # SQL command reference
+├── seed.sql                # optional startup seed data
+├── Dockerfile              # container image definition
+├── Makefile                # build, test, lint, and run commands
+├── go.mod                  # Go module definition
+└── README.md               # project documentation
 ```
 
 ## References
