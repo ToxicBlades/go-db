@@ -22,6 +22,7 @@ const (
 
 // Store is a key-value store built directly on top of the Pager.
 type Store struct {
+	path      string
 	pager     *storage.Pager
 	firstPage uint32
 	hasPages  bool
@@ -58,7 +59,7 @@ func Open(path string) (*Store, error) {
 		pager.Close()
 		return nil, err
 	}
-	s := &Store{pager: pager, wal: w, indexPath: path + ".idx"}
+	s := &Store{path: path, pager: pager, wal: w, indexPath: path + ".idx"}
 	indexLoaded, err := s.loadIndex()
 	if err != nil {
 		w.close()
@@ -193,6 +194,79 @@ func (s *Store) Delete(key []byte) error {
 	}
 	s.index.delete(key)
 	return s.saveIndex()
+}
+
+// Compact rewrites the store with one record for each live key, reclaiming
+// space occupied by overwritten values and tombstones.
+func (s *Store) Compact() error {
+	tmp := s.path + ".compact.tmp"
+	if err := os.Remove(tmp); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	newPager, err := storage.Open(tmp)
+	if err != nil {
+		return err
+	}
+	var first, last *storage.Page
+	for _, entry := range s.index.entries() {
+		if last == nil {
+			last, err = newPager.AllocatePage()
+			if err != nil {
+				break
+			}
+			first = last
+		}
+		if err = writeRecord(last, entry.Key, entry.Value, flagLive); err != nil {
+			previous := last
+			last, err = newPager.AllocatePage()
+			if err == nil {
+				previous.SetNextPageID(last.ID)
+				err = newPager.WritePage(previous)
+			}
+			if err == nil {
+				err = writeRecord(last, entry.Key, entry.Value, flagLive)
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+	if err != nil {
+		_ = newPager.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if last != nil {
+		err = newPager.WritePage(last)
+	}
+	if err == nil {
+		err = newPager.Flush()
+	}
+	if err == nil {
+		err = newPager.Sync()
+	}
+	if closeErr := newPager.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err = s.pager.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err = os.Rename(tmp, s.path); err != nil {
+		s.pager, _ = storage.Open(s.path)
+		return err
+	}
+	s.pager, err = storage.Open(s.path)
+	if err != nil {
+		return err
+	}
+	s.firstPage = 0
+	s.hasPages = first != nil
+	return s.wal.clear()
 }
 
 // append writes a record to the last page in the chain, allocating a

@@ -89,6 +89,57 @@ func TestDelete(t *testing.T) {
 	}
 }
 
+func TestCompactReclaimsObsoleteRecords(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "compact.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 100; i++ {
+		if err := s.Put([]byte(fmt.Sprintf("key-%d", i)), make([]byte, 100)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 100; i += 2 {
+		if err := s.Delete([]byte(fmt.Sprintf("key-%d", i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := s.Stats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Compact(); err != nil {
+		t.Fatal(err)
+	}
+	after, err := s.Stats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.PageCount >= before.PageCount {
+		t.Fatalf("compact pages = %d, before = %d", after.PageCount, before.PageCount)
+	}
+	for i := 0; i < 100; i++ {
+		_, found, err := s.Get([]byte(fmt.Sprintf("key-%d", i)))
+		if err != nil || found != (i%2 == 1) {
+			t.Fatalf("key %d found=%v err=%v", i, found, err)
+		}
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	_, found, err := s.Get([]byte("key-1"))
+	if err != nil || !found {
+		t.Fatalf("live key after reopen: found=%v err=%v", found, err)
+	}
+}
+
 func TestGrowsAcrossMultiplePages(t *testing.T) {
 	s := openTestStore(t)
 

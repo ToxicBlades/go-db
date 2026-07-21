@@ -8,7 +8,7 @@ working storage, indexing, typed tables, SQL, durability, and a TCP interface.
 - Fixed-size 4 KiB pages and a pager backed by a database file (`storage/`).
 - An LRU buffer pool with dirty-page flushing (`storage/buffer_pool.go`).
 - An append-only key/value store with tombstones, a persisted B+Tree index,
-  and write-ahead logging (`kv/`).
+  write-ahead logging, and explicit compaction (`kv/`).
 - Typed rows and schemas supporting `int`, `string`, `bool`, `float`, bytes,
   and timestamps (`kv/table.go`).
 - A small SQL lexer, parser, and executor supporting `SELECT`, `INSERT`,
@@ -64,6 +64,8 @@ Each page is 4 KiB. Its header stores the page ID, the next-page pointer, and
 the offset where the next record can be appended. Records contain a live or
 tombstone flag, key/value lengths, and the key/value bytes. Updates append a
 new record; reads use the rebuilt B+Tree to find the latest live value.
+`Store.Compact` rewrites only live indexed records into a fresh page chain and
+replaces the database file, reclaiming overwritten and deleted data.
 
 The WAL is stored beside the database file. Writes are logged and synced before
 the corresponding page changes. On startup, complete WAL records are replayed;
