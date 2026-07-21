@@ -5,6 +5,10 @@ intentionally small and is handled by `sql/sql.go`.
 
 ## Supported commands
 
+Storage metrics are available from the key-value shell with the `stats`
+command. It reports page count, WAL size, buffer-pool hit/miss counters and
+hit rate, plus cached and dirty page counts.
+
 ### Explicit transactions
 
 `BEGIN` starts a transaction that remains active across requests. Changes are

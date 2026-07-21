@@ -71,7 +71,7 @@ func main() {
 	}()
 
 	fmt.Printf("mydb - connected to %s\n", os.Args[1])
-	fmt.Println("commands: put <key> <value> | get <key> | delete <key> | exit")
+	fmt.Println("commands: put <key> <value> | get <key> | delete <key> | stats | exit")
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
@@ -125,6 +125,21 @@ func main() {
 				continue
 			}
 			fmt.Println("OK")
+
+		case "stats":
+			stats, err := store.Stats()
+			if err != nil {
+				fmt.Printf("error: %v\n", err)
+				continue
+			}
+			total := stats.BufferPool.Hits + stats.BufferPool.Misses
+			hitRate := 0.0
+			if total > 0 {
+				hitRate = float64(stats.BufferPool.Hits) / float64(total) * 100
+			}
+			fmt.Printf("page_count=%d wal_size=%d buffer_pool_hits=%d buffer_pool_misses=%d buffer_pool_hit_rate=%.2f%% cached_pages=%d dirty_pages=%d\n",
+				stats.PageCount, stats.WALSize, stats.BufferPool.Hits, stats.BufferPool.Misses, hitRate,
+				stats.BufferPool.CachedPages, stats.BufferPool.DirtyPages)
 
 		case "exit", "quit":
 			return

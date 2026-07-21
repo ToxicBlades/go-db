@@ -20,6 +20,9 @@ working storage, indexing, typed tables, SQL, durability, and a TCP interface.
 - A line-oriented TCP server accepting plain SQL or JSON requests (`server/`).
 - Interactive key/value and SQL clients (`cmd/mydb/`).
 
+The interactive key/value client also supports `stats`, which reports page
+count, WAL size, buffer-pool hit rate, and cached/dirty page counts.
+
 ## Architecture
 
 ```mermaid

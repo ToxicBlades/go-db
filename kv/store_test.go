@@ -191,3 +191,33 @@ func TestWALRecoversOperationBeforePageWrite(t *testing.T) {
 		t.Fatalf("reopened value = %q, found=%v, err=%v", value, found, err)
 	}
 }
+
+func TestStatsReportsStorageMetrics(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "stats.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	if err := s.Put([]byte("key"), []byte("value")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Put([]byte("other"), []byte("value")); err != nil {
+		t.Fatal(err)
+	}
+	stats, err := s.Stats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.PageCount != 1 || stats.WALSize == 0 || stats.BufferPool.DirtyPages != 1 {
+		t.Fatalf("unexpected stats: %#v", stats)
+	}
+	stats, err = s.Stats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.BufferPool.Hits == 0 {
+		t.Fatalf("expected buffer pool hit: %#v", stats)
+	}
+}

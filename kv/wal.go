@@ -18,6 +18,14 @@ const (
 
 type wal struct{ file *os.File }
 
+func (w *wal) size() (int64, error) {
+	info, err := w.file.Stat()
+	if err != nil {
+		return 0, fmt.Errorf("stat WAL: %w", err)
+	}
+	return info.Size(), nil
+}
+
 func openWAL(path string) (*wal, error) {
 	f, err := os.OpenFile(path+".wal", os.O_CREATE|os.O_RDWR|os.O_APPEND, 0644)
 	if err != nil {

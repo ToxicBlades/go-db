@@ -115,3 +115,6 @@ func (p *Pager) Sync() error { return p.file.Sync() }
 func (p *Pager) NumPages() uint32 {
 	return p.numPages
 }
+
+// BufferPoolStats returns a snapshot of the pager's buffer pool metrics.
+func (p *Pager) BufferPoolStats() BufferPoolStats { return p.pool.Stats() }

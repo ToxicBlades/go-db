@@ -32,6 +32,22 @@ type Store struct {
 	wal       *wal
 }
 
+// Stats is a point-in-time snapshot of storage metrics for this store.
+type Stats struct {
+	BufferPool storage.BufferPoolStats
+	PageCount  uint32
+	WALSize    int64
+}
+
+// Stats returns buffer pool, page count, and WAL size metrics.
+func (s *Store) Stats() (Stats, error) {
+	walSize, err := s.wal.size()
+	if err != nil {
+		return Stats{}, err
+	}
+	return Stats{BufferPool: s.pager.BufferPoolStats(), PageCount: s.pager.NumPages(), WALSize: walSize}, nil
+}
+
 // Open opens a Store backed by the file at path, creating it if needed.
 func Open(path string) (*Store, error) {
 	pager, err := storage.Open(path)
