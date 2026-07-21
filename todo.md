@@ -12,7 +12,7 @@
 - [x] **Snapshot-consistent SQL reads** — make `SELECT`, `UPDATE`, `DELETE`,
   uniqueness checks, foreign-key checks, and generated IDs read through the
   transaction snapshot.
-- [ ] **Read-your-writes** — overlay a transaction's uncommitted inserts,
+- [x] **Read-your-writes** — overlay a transaction's uncommitted inserts,
   updates, and deletes on snapshot reads without exposing them to other
   transactions.
 - [ ] **Atomic commit** — append a transaction's writes as one commit unit,

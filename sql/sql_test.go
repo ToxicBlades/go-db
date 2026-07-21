@@ -248,6 +248,29 @@ func TestSQLTransactionReadsSnapshot(t *testing.T) {
 	}
 }
 
+func TestSQLTransactionReadsOwnWrites(t *testing.T) {
+	s, err := kv.Open(t.TempDir() + "/db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl, err := kv.NewTable(s, kv.Schema{Columns: []kv.Column{{Name: "id", Type: kv.IntType}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tbl.Close()
+	e := NewExecutor(map[string]*kv.Table{"users": tbl})
+	if _, err := e.Execute("BEGIN; INSERT INTO users (id) VALUES (1); SELECT * FROM users"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := e.Execute("SELECT * FROM users")
+	if err != nil || len(r.Rows) != 1 || r.Rows[0]["id"] != 1 {
+		t.Fatalf("own write read=%#v err=%v", r.Rows, err)
+	}
+	if _, err := e.Execute("ROLLBACK"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSQLTransactionControlErrors(t *testing.T) {
 	e := NewExecutor(nil)
 	if _, err := e.Execute("COMMIT"); err == nil {

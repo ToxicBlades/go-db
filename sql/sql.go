@@ -799,6 +799,12 @@ type transactionTableState struct {
 	t        *kv.Table
 	readAt   kv.Snapshot
 	rollback []kv.Row
+	writes   map[string]transactionWrite
+}
+
+type transactionWrite struct {
+	row     kv.Row
+	deleted bool
 }
 
 // transaction owns all state for one explicit SQL transaction. Writes still
@@ -986,14 +992,51 @@ func (e *Executor) Execute(input string) (Result, error) {
 func (e *Executor) inTransaction() bool { return e.tx != nil }
 
 func (e *Executor) rows(t *kv.Table) ([]kv.Row, error) {
+	var rows []kv.Row
 	if e.tx != nil {
 		for _, state := range e.tx.tables {
 			if state.t == t {
-				return t.ScanAt(state.readAt)
+				rows, _ = t.ScanAt(state.readAt)
+				byKey := make(map[string]int, len(rows))
+				for i, row := range rows {
+					byKey[fmt.Sprint(row[t.Schema().Columns[0].Name])] = i
+				}
+				for key, write := range state.writes {
+					if write.deleted {
+						if i, ok := byKey[key]; ok {
+							rows = append(rows[:i], rows[i+1:]...)
+							for k, j := range byKey {
+								if j > i {
+									byKey[k] = j - 1
+								}
+							}
+						}
+						continue
+					}
+					if i, ok := byKey[key]; ok {
+						rows[i] = write.row
+					} else {
+						byKey[key] = len(rows)
+						rows = append(rows, write.row)
+					}
+				}
+				return rows, nil
 			}
 		}
 	}
 	return t.Scan()
+}
+
+func (e *Executor) recordWrite(t *kv.Table, key string, row kv.Row, deleted bool) {
+	if e.tx == nil {
+		return
+	}
+	for i := range e.tx.tables {
+		if e.tx.tables[i].t == t {
+			e.tx.tables[i].writes[key] = transactionWrite{row: row, deleted: deleted}
+			return
+		}
+	}
 }
 
 func (e *Executor) snapshotOf(t *kv.Table) (kv.Snapshot, bool) {
@@ -1023,7 +1066,7 @@ func (e *Executor) begin() (Result, error) {
 		if err != nil {
 			return Result{}, err
 		}
-		tx.tables = append(tx.tables, transactionTableState{t: t, readAt: readAt, rollback: rows})
+		tx.tables = append(tx.tables, transactionTableState{t: t, readAt: readAt, rollback: rows, writes: make(map[string]transactionWrite)})
 	}
 	e.tx = tx
 	return Result{}, nil
@@ -1304,11 +1347,24 @@ func (e *Executor) update(q Update) (Result, error) {
 			return Result{}, fmt.Errorf("unknown column %q", name)
 		}
 	}
-	var n int
-	if snapshot, ok := e.snapshotOf(t); ok {
-		n, err = t.UpdateAt(snapshot, func(r kv.Row) bool { return match(q.Where, r) }, set)
-	} else {
-		n, err = t.Update(func(r kv.Row) bool { return match(q.Where, r) }, set)
+	rows, err := e.rows(t)
+	if err != nil {
+		return Result{}, err
+	}
+	n := 0
+	for _, r := range rows {
+		if !match(q.Where, r) {
+			continue
+		}
+		for k, v := range set {
+			r[k] = v
+		}
+		key := fmt.Sprint(r[t.Schema().Columns[0].Name])
+		if err = t.Insert(key, r); err != nil {
+			return Result{Affected: n}, err
+		}
+		e.recordWrite(t, key, r, false)
+		n++
 	}
 	return Result{Affected: n}, err
 }
@@ -1317,11 +1373,21 @@ func (e *Executor) delete(q Delete) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	var n int
-	if snapshot, ok := e.snapshotOf(t); ok {
-		n, err = t.DeleteWhereAt(snapshot, func(r kv.Row) bool { return match(q.Where, r) })
-	} else {
-		n, err = t.DeleteWhere(func(r kv.Row) bool { return match(q.Where, r) })
+	rows, err := e.rows(t)
+	if err != nil {
+		return Result{}, err
+	}
+	n := 0
+	for _, r := range rows {
+		if !match(q.Where, r) {
+			continue
+		}
+		key := fmt.Sprint(r[t.Schema().Columns[0].Name])
+		if err = t.Delete(key); err != nil {
+			return Result{Affected: n}, err
+		}
+		e.recordWrite(t, key, nil, true)
+		n++
 	}
 	return Result{Affected: n}, err
 }
@@ -1484,6 +1550,7 @@ func (e *Executor) insert(q Insert) (Result, error) {
 	if err = t.Insert(fmt.Sprint(key), r); err != nil {
 		return Result{}, err
 	}
+	e.recordWrite(t, fmt.Sprint(key), r, false)
 	return Result{Affected: 1}, nil
 }
 func coerceValue(v any, typ kv.ColumnType) (any, error) {
