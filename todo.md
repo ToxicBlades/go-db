@@ -6,7 +6,7 @@
   version chains, and expose `Store.BeginSnapshot`, `GetAt`, and `KeysAt`.
 - [x] **Table snapshots** — expose `Table.Snapshot`, `GetAt`, and `ScanAt` for
   consistent row reads.
-- [ ] **Transaction-owned state** — replace SQL's snapshot/restore transaction
+- [x] **Transaction-owned state** — replace SQL's snapshot/restore transaction
   implementation with a transaction object containing a read timestamp,
   pending writes, and transaction status.
 - [ ] **Snapshot-consistent SQL reads** — make `SELECT`, `UPDATE`, `DELETE`,

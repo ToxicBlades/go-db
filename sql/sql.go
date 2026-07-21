@@ -789,14 +789,29 @@ type Result struct {
 	Rows     []kv.Row
 	Affected int
 }
-type transactionSnapshot struct {
-	t    *kv.Table
-	rows []kv.Row
+type transactionStatus byte
+
+const (
+	transactionActive transactionStatus = iota + 1
+)
+
+type transactionTableState struct {
+	t        *kv.Table
+	readAt   kv.Snapshot
+	rollback []kv.Row
+}
+
+// transaction owns all state for one explicit SQL transaction. Writes still
+// use the existing table APIs in this milestone; the read timestamp and
+// rollback image are ready for the pending-write layer that follows.
+type transaction struct {
+	status transactionStatus
+	tables []transactionTableState
 }
 
 type Executor struct {
 	Tables map[string]*kv.Table
-	tx     []transactionSnapshot
+	tx     *transaction
 }
 
 // PreparedStatement is a parsed SQL statement that can be executed repeatedly
@@ -978,15 +993,16 @@ func (e *Executor) begin() (Result, error) {
 	if e.inTransaction() {
 		return Result{}, fmt.Errorf("transaction already in progress")
 	}
-	e.tx = make([]transactionSnapshot, 0, len(e.Tables))
+	tx := &transaction{status: transactionActive, tables: make([]transactionTableState, 0, len(e.Tables))}
 	for _, t := range e.Tables {
+		readAt := t.Snapshot()
 		rows, err := t.Scan()
 		if err != nil {
-			e.tx = nil
 			return Result{}, err
 		}
-		e.tx = append(e.tx, transactionSnapshot{t: t, rows: rows})
+		tx.tables = append(tx.tables, transactionTableState{t: t, readAt: readAt, rollback: rows})
 	}
+	e.tx = tx
 	return Result{}, nil
 }
 
@@ -994,6 +1010,7 @@ func (e *Executor) commit() (Result, error) {
 	if !e.inTransaction() {
 		return Result{}, fmt.Errorf("no transaction in progress")
 	}
+	e.tx.status = 0
 	e.tx = nil
 	return Result{}, nil
 }
@@ -1002,16 +1019,17 @@ func (e *Executor) rollback() (Result, error) {
 	if !e.inTransaction() {
 		return Result{}, fmt.Errorf("no transaction in progress")
 	}
-	for _, snap := range e.tx {
-		if _, err := snap.t.DeleteWhere(func(kv.Row) bool { return true }); err != nil {
+	for _, table := range e.tx.tables {
+		if _, err := table.t.DeleteWhere(func(kv.Row) bool { return true }); err != nil {
 			return Result{}, err
 		}
-		for _, row := range snap.rows {
-			if err := snap.t.Insert(fmt.Sprint(row[snap.t.Schema().Columns[0].Name]), row); err != nil {
+		for _, row := range table.rollback {
+			if err := table.t.Insert(fmt.Sprint(row[table.t.Schema().Columns[0].Name]), row); err != nil {
 				return Result{}, err
 			}
 		}
 	}
+	e.tx.status = 0
 	e.tx = nil
 	return Result{}, nil
 }
