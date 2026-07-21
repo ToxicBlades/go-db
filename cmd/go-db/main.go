@@ -69,14 +69,47 @@ func serverCommand(args []string) {
 	if err != nil {
 		fatal("opening store", err)
 	}
-	table, err := kv.NewTable(store, kv.Schema{Columns: []kv.Column{{Name: "id", Type: kv.IntType}, {Name: "name", Type: kv.StringType}, {Name: "active", Type: kv.BoolType}}})
+	catalog, err := kv.OpenCatalog(*dbPath + ".catalog")
+	if err != nil {
+		_ = store.Close()
+		fatal("opening catalog", err)
+	}
+	tables := make(map[string]*kv.Table)
+	for _, entry := range catalog.Entries() {
+		if entry.Path == *dbPath {
+			continue
+		}
+		table, openErr := kv.OpenTable(entry.Path, entry.Schema)
+		if openErr != nil {
+			_ = store.Close()
+			fatal("opening table "+entry.Name, openErr)
+		}
+		tables[entry.Name] = table
+	}
+	usersSchema := kv.Schema{Columns: []kv.Column{{Name: "id", Type: kv.IntType}, {Name: "name", Type: kv.StringType}, {Name: "active", Type: kv.BoolType}}}
+	usersEntry, hasUsers := findCatalogEntry(catalog, "users")
+	if hasUsers {
+		usersSchema = usersEntry.Schema
+	}
+	if hasUsers && usersEntry.Path != *dbPath {
+		_ = store.Close()
+		fatal("opening users table", fmt.Errorf("catalog users path is %q, want %q", usersEntry.Path, *dbPath))
+	}
+	users, err := kv.NewTable(store, usersSchema)
 	if err != nil {
 		_ = store.Close()
 		fatal("creating users table", err)
 	}
-	executor := sql.NewExecutor(map[string]*kv.Table{"users": table})
+	tables["users"] = users
+	if !hasUsers {
+		if err := catalog.Set(kv.CatalogEntry{Name: "users", Path: *dbPath, Schema: usersSchema}); err != nil {
+			_ = users.Close()
+			fatal("registering users table", err)
+		}
+	}
+	executor := sql.NewExecutorWithCatalog(tables, catalog)
 	if err := runSeed(executor, *seedPath); err != nil {
-		_ = store.Close()
+		closeTables(tables)
 		fatal("running seed file", err)
 	}
 	var s *server.Server
@@ -86,7 +119,7 @@ func serverCommand(args []string) {
 		s, err = server.New(executor)
 	}
 	if err != nil {
-		_ = store.Close()
+		closeTables(tables)
 		fatal("creating server", err)
 	}
 	signals := make(chan os.Signal, 1)
@@ -94,10 +127,29 @@ func serverCommand(args []string) {
 	go func() { <-signals; _ = s.Close() }()
 	fmt.Printf("go-db server listening on %s (database: %s)\n", *addr, *dbPath)
 	if err := s.ListenAndServe(*addr); err != nil && err != net.ErrClosed {
-		_ = store.Close()
+		closeTables(tables)
 		fatal("server", err)
 	}
-	_ = store.Close()
+	closeTables(tables)
+}
+
+func findCatalogEntry(catalog *kv.Catalog, name string) (kv.CatalogEntry, bool) {
+	for _, entry := range catalog.Entries() {
+		if entry.Name == name {
+			return entry, true
+		}
+	}
+	return kv.CatalogEntry{}, false
+}
+
+func closeTables(tables map[string]*kv.Table) {
+	closed := map[*kv.Table]bool{}
+	for _, table := range tables {
+		if !closed[table] {
+			_ = table.Close()
+			closed[table] = true
+		}
+	}
 }
 
 func sqlCommand(args []string) {

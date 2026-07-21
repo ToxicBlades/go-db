@@ -1,6 +1,7 @@
 package sql
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -183,6 +184,40 @@ func TestSQLAutoIncrementID(t *testing.T) {
 	}
 	if len(r.Rows) != 2 || r.Rows[0]["id"] != 1 || r.Rows[1]["id"] != 2 {
 		t.Fatalf("unexpected auto-generated IDs: %#v", r.Rows)
+	}
+}
+
+func TestSQLCatalogRestoresCreatedTable(t *testing.T) {
+	dir := t.TempDir()
+	catalog, err := kv.OpenCatalog(filepath.Join(dir, "db.catalog"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := kv.Open(filepath.Join(dir, "db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewExecutorWithCatalog(map[string]*kv.Table{}, catalog)
+	if _, err := e.Execute("CREATE TABLE accounts (name STRING UNIQUE)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Execute("INSERT INTO accounts (name) VALUES ('Ada')"); err != nil {
+		t.Fatal(err)
+	}
+	entry := catalog.Entries()[0]
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	table, err := kv.OpenTable(entry.Path, entry.Schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer table.Close()
+	reopened := NewExecutorWithCatalog(map[string]*kv.Table{"accounts": table}, catalog)
+	r, err := reopened.Execute("SELECT name FROM accounts")
+	if err != nil || len(r.Rows) != 1 || r.Rows[0]["name"] != "Ada" {
+		t.Fatalf("restored table = %#v, %v", r.Rows, err)
 	}
 }
 

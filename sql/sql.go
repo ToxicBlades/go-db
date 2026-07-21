@@ -845,8 +845,9 @@ var (
 )
 
 type Executor struct {
-	Tables map[string]*kv.Table
-	tx     *transaction
+	Tables  map[string]*kv.Table
+	Catalog *kv.Catalog
+	tx      *transaction
 }
 
 // PreparedStatement is a parsed SQL statement that can be executed repeatedly
@@ -961,6 +962,13 @@ func bindStatement(s Statement, args []any) (Statement, error) {
 }
 
 func NewExecutor(tables map[string]*kv.Table) *Executor { return &Executor{Tables: tables} }
+
+// NewExecutorWithCatalog creates an executor that persists table DDL in the
+// supplied catalog. A nil catalog preserves the in-memory behavior.
+func NewExecutorWithCatalog(tables map[string]*kv.Table, catalog *kv.Catalog) *Executor {
+	return &Executor{Tables: tables, Catalog: catalog}
+}
+
 func (e *Executor) Execute(input string) (Result, error) {
 	parts := splitStatements(input)
 	if len(parts) == 0 {
@@ -1452,6 +1460,11 @@ func (e *Executor) drop(q DropTable) (Result, error) {
 		return Result{}, fmt.Errorf("unknown table %q", q.Table)
 	}
 	delete(e.Tables, n)
+	if e.Catalog != nil {
+		if err := e.Catalog.Delete(n); err != nil {
+			return Result{}, err
+		}
+	}
 	return Result{Affected: 1}, t.Close()
 }
 
@@ -1481,6 +1494,18 @@ func (e *Executor) alter(q AlterTable) (Result, error) {
 	}
 	if err = t.Alter(s); err != nil {
 		return Result{}, err
+	}
+	if e.Catalog != nil {
+		entry := kv.CatalogEntry{Name: strings.ToLower(q.Table), Schema: s}
+		for _, existing := range e.Catalog.Entries() {
+			if existing.Name == entry.Name {
+				entry.Path = existing.Path
+				break
+			}
+		}
+		if err := e.Catalog.Set(entry); err != nil {
+			return Result{}, err
+		}
 	}
 	return Result{Affected: 1}, nil
 }
@@ -1519,6 +1544,13 @@ func (e *Executor) create(q CreateTable) (Result, error) {
 		return Result{}, err
 	}
 	e.Tables[n] = t
+	if e.Catalog != nil {
+		if err := e.Catalog.Set(kv.CatalogEntry{Name: n, Path: path, Schema: t.Schema()}); err != nil {
+			delete(e.Tables, n)
+			_ = t.Close()
+			return Result{}, err
+		}
+	}
 	return Result{Affected: 1}, nil
 }
 

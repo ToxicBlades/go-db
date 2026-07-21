@@ -233,8 +233,10 @@ contain letters, digits, and underscores.
 ## Tables
 
 Tables may be created with `CREATE TABLE`, or created by the Go application
-when the server starts. In the default setup, the available table is `users`
-with the schema `users(id INT, name STRING, active BOOL)`.
+when the server starts. Table names, schemas, constraints, and backing paths
+are stored in a catalog sidecar next to the database and are reopened when the
+server restarts. In the default setup, the available table is `users` with the
+schema `users(id INT, name STRING, active BOOL)`.
 
 ## Running SQL
 

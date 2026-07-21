@@ -19,6 +19,7 @@ working storage, indexing, typed tables, SQL, durability, and a TCP interface.
   (`BEGIN`/`COMMIT`/`ROLLBACK`), `EXPLAIN`, and
   `SHOW TABLES`/`LIST TABLES` (`sql/`).
 - Backup and restore commands that snapshot the database file and its WAL and index sidecars (`kv/`, `cmd/go-db/`).
+- A durable JSON table catalog beside the database, allowing SQL-created tables and schemas to be reopened after a restart (`kv/`, `cmd/go-db/`).
 - A line-oriented TCP server accepting plain SQL or JSON requests (`server/`).
 - An interactive SQL client (`cmd/go-db/`).
 
@@ -28,6 +29,7 @@ working storage, indexing, typed tables, SQL, durability, and a TCP interface.
 flowchart TD
     CLI[cmd/go-db\ninteractive SQL client] --> TCP[server\nline-oriented TCP]
     TCP --> SQL[sql\nlexer, parser, executor]
+    SQL --> CATALOG[Catalog\ndurable table metadata]
     SQL --> TABLE[kv.Table\ntyped rows and schemas]
     TABLE --> STORE[kv.Store\nkey/value records]
     STORE --> INDEX[B+Tree\npersisted index]
@@ -132,8 +134,9 @@ The SQL client prints result sets as aligned tables:
 ```text
 go-db/
 ├── cmd/go-db/main.go       # SQL client, server, and backup/restore commands
-├── db/                     # database files and sidecars
+├── db/                     # database files and sidecars, including catalog
 ├── kv/
+│   ├── catalog.go         # durable table metadata
 │   ├── btree.go           # B+Tree index and persistence
 │   ├── store.go           # append-only records and store operations
 │   ├── table.go           # typed schemas and rows
