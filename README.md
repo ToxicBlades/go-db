@@ -13,7 +13,8 @@ working storage, indexing, typed tables, SQL, durability, and a TCP interface.
   and timestamps (`kv/table.go`).
 - A small SQL lexer, parser, and executor supporting `SELECT`, `INSERT`,
   `WHERE`, nested-loop inner joins, batched transactional requests,
-  `ORDER BY`, `LIMIT`/`OFFSET`, grouped aggregates, `EXPLAIN`, and
+  `ORDER BY`, `LIMIT`/`OFFSET`, grouped aggregates, explicit transactions
+  (`BEGIN`/`COMMIT`/`ROLLBACK`), `EXPLAIN`, and
   `SHOW TABLES`/`LIST TABLES` (`sql/`).
 - Backup and restore commands that snapshot the database file and its WAL sidecar (`kv/`, `cmd/mydb/`).
 - A line-oriented TCP server accepting plain SQL or JSON requests (`server/`).
@@ -44,7 +45,7 @@ sequenceDiagram
     participant T as kv.Table
     participant D as Store/WAL
     C->>S: SQL line or JSON request
-    S->>E: Execute(query)
+    S->>E: Execute(query) [connection-local transaction state]
     E->>T: read or write typed row
     T->>D: encode/decode and persist
     D-->>T: result

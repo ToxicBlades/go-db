@@ -69,6 +69,9 @@ func (s *Server) Close() error {
 
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
+	// Keep transaction state scoped to this client connection while sharing the
+	// server's table registry and underlying tables.
+	executor := sql.NewExecutor(s.Executor.Tables)
 	sc := bufio.NewScanner(conn)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -89,7 +92,7 @@ func (s *Server) handle(conn net.Conn) {
 			continue
 		}
 		s.mu.Lock()
-		result, err := s.Executor.Execute(query)
+		result, err := executor.Execute(query)
 		s.mu.Unlock()
 		if err != nil {
 			s.write(conn, Response{Error: err.Error()})

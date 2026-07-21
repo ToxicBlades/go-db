@@ -152,6 +152,50 @@ func TestSQLAutoIncrementID(t *testing.T) {
 	}
 }
 
+func TestSQLExplicitTransactions(t *testing.T) {
+	s, err := kv.Open(t.TempDir() + "/db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl, err := kv.NewTable(s, kv.Schema{Columns: []kv.Column{{Name: "id", Type: kv.IntType}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tbl.Close()
+	e := NewExecutor(map[string]*kv.Table{"users": tbl})
+	if _, err := e.Execute("BEGIN"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Execute("INSERT INTO users (id) VALUES (1)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Execute("ROLLBACK"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := e.Execute("SELECT * FROM users")
+	if err != nil || len(r.Rows) != 0 {
+		t.Fatalf("rollback did not undo write: %#v %v", r, err)
+	}
+
+	if _, err := e.Execute("BEGIN; INSERT INTO users (id) VALUES (2); COMMIT;"); err != nil {
+		t.Fatal(err)
+	}
+	r, err = e.Execute("SELECT * FROM users")
+	if err != nil || len(r.Rows) != 1 || r.Rows[0]["id"] != 2 {
+		t.Fatalf("commit did not preserve write: %#v %v", r, err)
+	}
+}
+
+func TestSQLTransactionControlErrors(t *testing.T) {
+	e := NewExecutor(nil)
+	if _, err := e.Execute("COMMIT"); err == nil {
+		t.Fatal("expected COMMIT outside transaction to fail")
+	}
+	if _, err := e.Execute("ROLLBACK"); err == nil {
+		t.Fatal("expected ROLLBACK outside transaction to fail")
+	}
+}
+
 func TestSQLOrderLimitOffsetAndAggregates(t *testing.T) {
 	s, err := kv.Open(t.TempDir() + "/db")
 	if err != nil {

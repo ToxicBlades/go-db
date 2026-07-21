@@ -5,6 +5,20 @@ intentionally small and is handled by `sql/sql.go`.
 
 ## Supported commands
 
+### Explicit transactions
+
+`BEGIN` starts a transaction that remains active across requests. Changes are
+made durable by `COMMIT`; `ROLLBACK` restores the rows present at `BEGIN`:
+
+```sql
+BEGIN;
+INSERT INTO users (id, name, active) VALUES (4, 'Drew', true);
+ROLLBACK;
+```
+
+Only one explicit transaction may be active per client connection. `COMMIT`
+and `ROLLBACK` outside a transaction return an error.
+
 ### `EXPLAIN`
 
 Shows the executor's query plan, including for simple queries that use a
@@ -200,8 +214,9 @@ contain letters, digits, and underscores.
 - Keywords and table/column names are matched case-insensitively where the SQL
   executor performs name lookup.
 - A trailing semicolon is optional for a single statement.
-- Only one statement may be sent per request. Multiple statements separated by
-  semicolons are rejected.
+- A request may contain multiple semicolon-separated statements. Such batches
+  are atomic; row changes are rolled back if a statement fails. `BEGIN`,
+  `COMMIT`, and `ROLLBACK` can also be used across separate requests.
 - `SELECT` requires `FROM` and `INSERT` requires `INTO`, a column list, and
   `VALUES`.
 - Selecting an unknown column or table returns an error.

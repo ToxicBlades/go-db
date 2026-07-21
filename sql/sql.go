@@ -126,7 +126,7 @@ func Lex(input string) ([]Token, error) {
 		word := input[start:i]
 		upper := strings.ToUpper(word)
 		typ := Identifier
-		if upper == "SELECT" || upper == "FROM" || upper == "WHERE" || upper == "INSERT" || upper == "INTO" || upper == "VALUES" || upper == "SHOW" || upper == "TABLES" || upper == "LIST" || upper == "CREATE" || upper == "TABLE" || upper == "ALTER" || upper == "ADD" || upper == "COLUMN" || upper == "DROP" || upper == "RENAME" || upper == "TO" || upper == "UPDATE" || upper == "SET" || upper == "DELETE" || upper == "AND" || upper == "OR" || upper == "EXPLAIN" || upper == "ORDER" || upper == "BY" || upper == "ASC" || upper == "DESC" || upper == "LIMIT" || upper == "OFFSET" || upper == "GROUP" || upper == "COUNT" || upper == "SUM" || upper == "AVG" || upper == "MIN" || upper == "MAX" {
+		if upper == "SELECT" || upper == "FROM" || upper == "WHERE" || upper == "INSERT" || upper == "INTO" || upper == "VALUES" || upper == "SHOW" || upper == "TABLES" || upper == "LIST" || upper == "CREATE" || upper == "TABLE" || upper == "ALTER" || upper == "ADD" || upper == "COLUMN" || upper == "DROP" || upper == "RENAME" || upper == "TO" || upper == "UPDATE" || upper == "SET" || upper == "DELETE" || upper == "AND" || upper == "OR" || upper == "EXPLAIN" || upper == "ORDER" || upper == "BY" || upper == "ASC" || upper == "DESC" || upper == "LIMIT" || upper == "OFFSET" || upper == "GROUP" || upper == "COUNT" || upper == "SUM" || upper == "AVG" || upper == "MIN" || upper == "MAX" || upper == "BEGIN" || upper == "COMMIT" || upper == "ROLLBACK" {
 			typ = Keyword
 		}
 		if upper == "TRUE" || upper == "FALSE" {
@@ -217,6 +217,18 @@ type Delete struct {
 
 func (Delete) isStatement() {}
 
+type Begin struct{}
+
+func (Begin) isStatement() {}
+
+type Commit struct{}
+
+func (Commit) isStatement() {}
+
+type Rollback struct{}
+
+func (Rollback) isStatement() {}
+
 type Condition struct {
 	Column      string
 	Operator    string
@@ -239,6 +251,15 @@ func Parse(input string) (Statement, error) {
 	var s Statement
 	var err error
 	switch {
+	case strings.EqualFold(p.cur().Lexeme, "BEGIN"):
+		p.take()
+		s = Begin{}
+	case strings.EqualFold(p.cur().Lexeme, "COMMIT"):
+		p.take()
+		s = Commit{}
+	case strings.EqualFold(p.cur().Lexeme, "ROLLBACK"):
+		p.take()
+		s = Rollback{}
 	case strings.EqualFold(p.cur().Lexeme, "EXPLAIN"):
 		p.take()
 		if p.cur().Type == EOF || p.cur().Type == Semicolon {
@@ -746,16 +767,46 @@ type Result struct {
 	Rows     []kv.Row
 	Affected int
 }
-type Executor struct{ Tables map[string]*kv.Table }
+type transactionSnapshot struct {
+	t    *kv.Table
+	rows []kv.Row
+}
 
-func NewExecutor(tables map[string]*kv.Table) *Executor { return &Executor{tables} }
+type Executor struct {
+	Tables map[string]*kv.Table
+	tx     []transactionSnapshot
+}
+
+func NewExecutor(tables map[string]*kv.Table) *Executor { return &Executor{Tables: tables} }
 func (e *Executor) Execute(input string) (Result, error) {
 	parts := splitStatements(input)
 	if len(parts) == 0 {
 		return Result{}, fmt.Errorf("empty request")
 	}
+	containsTxControl := false
+	for _, part := range parts {
+		s, err := Parse(part)
+		if err != nil {
+			return Result{}, err
+		}
+		switch s.(type) {
+		case Begin, Commit, Rollback:
+			containsTxControl = true
+		}
+	}
 	if len(parts) == 1 {
 		return e.executeOne(parts[0])
+	}
+	if e.inTransaction() || containsTxControl {
+		var out Result
+		for _, part := range parts {
+			var err error
+			out, err = e.executeOne(part)
+			if err != nil {
+				return Result{}, err
+			}
+		}
+		return out, nil
 	}
 	type snap struct {
 		t    *kv.Table
@@ -784,6 +835,49 @@ func (e *Executor) Execute(input string) (Result, error) {
 		out = r
 	}
 	return out, nil
+}
+func (e *Executor) inTransaction() bool { return e.tx != nil }
+
+func (e *Executor) begin() (Result, error) {
+	if e.inTransaction() {
+		return Result{}, fmt.Errorf("transaction already in progress")
+	}
+	e.tx = make([]transactionSnapshot, 0, len(e.Tables))
+	for _, t := range e.Tables {
+		rows, err := t.Scan()
+		if err != nil {
+			e.tx = nil
+			return Result{}, err
+		}
+		e.tx = append(e.tx, transactionSnapshot{t: t, rows: rows})
+	}
+	return Result{}, nil
+}
+
+func (e *Executor) commit() (Result, error) {
+	if !e.inTransaction() {
+		return Result{}, fmt.Errorf("no transaction in progress")
+	}
+	e.tx = nil
+	return Result{}, nil
+}
+
+func (e *Executor) rollback() (Result, error) {
+	if !e.inTransaction() {
+		return Result{}, fmt.Errorf("no transaction in progress")
+	}
+	for _, snap := range e.tx {
+		if _, err := snap.t.DeleteWhere(func(kv.Row) bool { return true }); err != nil {
+			return Result{}, err
+		}
+		for _, row := range snap.rows {
+			if err := snap.t.Insert(fmt.Sprint(row[snap.t.Schema().Columns[0].Name]), row); err != nil {
+				return Result{}, err
+			}
+		}
+	}
+	e.tx = nil
+	return Result{}, nil
 }
 func splitStatements(s string) []string {
 	var out []string
@@ -816,6 +910,12 @@ func (e *Executor) executeOne(input string) (Result, error) {
 		return Result{}, err
 	}
 	switch q := s.(type) {
+	case Begin:
+		return e.begin()
+	case Commit:
+		return e.commit()
+	case Rollback:
+		return e.rollback()
 	case Explain:
 		return e.explain(q.Statement)
 	case ExplainTable:
