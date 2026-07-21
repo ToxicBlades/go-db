@@ -1,15 +1,13 @@
-// Package kv implements milestone 1 of the database engine: a working,
-// disk-backed key-value store. Records are appended to fixed-size pages,
-// and pages are chained together as they fill up. Lookups are a linear
-// scan over every record - this is intentionally the "dumb" version.
-// Once this is correct and tested, milestone 3 replaces the scan with
-// a B+Tree index for real performance, without changing the on-disk
-// record format at all.
+// Package kv implements a disk-backed key-value store. Records are appended
+// to fixed-size pages, and a persisted B+Tree provides indexed lookups.
 package kv
 
 import (
+	"bytes"
 	"encoding/binary"
+	"encoding/gob"
 	"fmt"
+	"os"
 
 	"mydb/storage"
 )
@@ -22,14 +20,14 @@ const (
 	recordHeaderSize = 5
 )
 
-// Store is a simple, linear-scan key-value store built directly on top
-// of the Pager.
+// Store is a key-value store built directly on top of the Pager.
 type Store struct {
 	pager     *storage.Pager
 	firstPage uint32
 	hasPages  bool
 	index     btree
 	wal       *wal
+	indexPath string
 }
 
 // Stats is a point-in-time snapshot of storage metrics for this store.
@@ -60,7 +58,13 @@ func Open(path string) (*Store, error) {
 		pager.Close()
 		return nil, err
 	}
-	s := &Store{pager: pager, wal: w}
+	s := &Store{pager: pager, wal: w, indexPath: path + ".idx"}
+	indexLoaded, err := s.loadIndex()
+	if err != nil {
+		w.close()
+		pager.Close()
+		return nil, fmt.Errorf("load index: %w", err)
+	}
 	if err := w.replay(func(op byte, key, value []byte) error {
 		return s.append(key, value, map[byte]byte{walPut: flagLive, walDelete: flagTombstone}[op])
 	}); err != nil {
@@ -68,10 +72,17 @@ func Open(path string) (*Store, error) {
 		pager.Close()
 		return nil, fmt.Errorf("WAL recovery: %w", err)
 	}
-	if pager.NumPages() > 0 {
+	if pager.NumPages() > 0 && !indexLoaded {
 		s.firstPage = 0
 		s.hasPages = true
 		if err := s.rebuildIndex(); err != nil {
+			pager.Close()
+			return nil, err
+		}
+	}
+	if !indexLoaded {
+		if err := s.saveIndex(); err != nil {
+			w.close()
 			pager.Close()
 			return nil, err
 		}
@@ -85,6 +96,9 @@ func (s *Store) Close() error {
 		return err
 	}
 	if err := s.pager.Sync(); err != nil {
+		return err
+	}
+	if err := s.saveIndex(); err != nil {
 		return err
 	}
 	if err := s.wal.clear(); err != nil {
@@ -178,7 +192,7 @@ func (s *Store) Delete(key []byte) error {
 		return err
 	}
 	s.index.delete(key)
-	return nil
+	return s.saveIndex()
 }
 
 // append writes a record to the last page in the chain, allocating a
@@ -210,6 +224,9 @@ func (s *Store) append(key, value []byte, flag byte) error {
 		} else {
 			s.index.delete(key)
 		}
+		if err := s.saveIndex(); err != nil {
+			return err
+		}
 		return nil
 	}
 
@@ -218,6 +235,43 @@ func (s *Store) append(key, value []byte, flag byte) error {
 	}
 	if flag == flagLive {
 		s.index.put(key, value)
+	}
+	if err := s.saveIndex(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) loadIndex() (bool, error) {
+	f, err := os.Open(s.indexPath)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	var entries []btreeEntry
+	if err := gob.NewDecoder(f).Decode(&entries); err != nil {
+		return false, err
+	}
+	for _, e := range entries {
+		s.index.put(e.Key, e.Value)
+	}
+	return true, nil
+}
+
+func (s *Store) saveIndex() error {
+	data := new(bytes.Buffer)
+	if err := gob.NewEncoder(data).Encode(s.index.entries()); err != nil {
+		return err
+	}
+	tmp := s.indexPath + ".tmp"
+	if err := os.WriteFile(tmp, data.Bytes(), 0644); err != nil {
+		return fmt.Errorf("write index: %w", err)
+	}
+	if err := os.Rename(tmp, s.indexPath); err != nil {
+		return fmt.Errorf("replace index: %w", err)
 	}
 	return nil
 }

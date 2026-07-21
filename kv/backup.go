@@ -18,6 +18,9 @@ func Backup(source, destination string) error {
 	if err := copyFile(source+".wal", destination+".wal"); err != nil {
 		return fmt.Errorf("copy WAL: %w", err)
 	}
+	if err := copyFile(source+".idx", destination+".idx"); err != nil {
+		return fmt.Errorf("copy index: %w", err)
+	}
 	return nil
 }
 
@@ -31,6 +34,9 @@ func Restore(source, destination string) error {
 	}
 	if err := copyFile(source+".wal", destination+".wal"); err != nil {
 		return fmt.Errorf("restore WAL: %w", err)
+	}
+	if err := copyFile(source+".idx", destination+".idx"); err != nil {
+		return fmt.Errorf("restore index: %w", err)
 	}
 	return nil
 }

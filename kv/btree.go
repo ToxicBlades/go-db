@@ -2,9 +2,10 @@ package kv
 
 import "bytes"
 
-// btree is an in-memory B+Tree. Leaves contain the values; internal keys are
+// btree is a B+Tree. Leaves contain the values; internal keys are
 // separators (the first key in the child to their right). It is rebuilt from
-// the append-only record log when a Store is opened.
+// the append-only record log when a Store is opened if its persisted index is
+// unavailable.
 const btreeOrder = 32
 
 type btreeNode struct {
@@ -16,6 +17,25 @@ type btreeNode struct {
 }
 
 type btree struct{ root *btreeNode }
+
+type btreeEntry struct{ Key, Value []byte }
+
+func (t *btree) entries() []btreeEntry {
+	var out []btreeEntry
+	if t.root == nil {
+		return out
+	}
+	n := t.root
+	for !n.leaf {
+		n = n.children[0]
+	}
+	for ; n != nil; n = n.next {
+		for i := range n.keys {
+			out = append(out, btreeEntry{copyKey(n.keys[i]), append([]byte(nil), n.values[i]...)})
+		}
+	}
+	return out
+}
 
 func (t *btree) get(key []byte) ([]byte, bool) {
 	if t.root == nil {

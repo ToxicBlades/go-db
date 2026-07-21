@@ -7,7 +7,7 @@ working storage, indexing, typed tables, SQL, durability, and a TCP interface.
 
 - Fixed-size 4 KiB pages and a pager backed by a database file (`storage/`).
 - An LRU buffer pool with dirty-page flushing (`storage/buffer_pool.go`).
-- An append-only key/value store with tombstones, an in-memory B+Tree index,
+- An append-only key/value store with tombstones, a persisted B+Tree index,
   and write-ahead logging (`kv/`).
 - Typed rows and schemas supporting `int`, `string`, `bool`, `float`, bytes,
   and timestamps (`kv/table.go`).
@@ -16,7 +16,7 @@ working storage, indexing, typed tables, SQL, durability, and a TCP interface.
   `ORDER BY`, `LIMIT`/`OFFSET`, grouped aggregates, explicit transactions
   (`BEGIN`/`COMMIT`/`ROLLBACK`), `EXPLAIN`, and
   `SHOW TABLES`/`LIST TABLES` (`sql/`).
-- Backup and restore commands that snapshot the database file and its WAL sidecar (`kv/`, `cmd/mydb/`).
+- Backup and restore commands that snapshot the database file and its WAL and index sidecars (`kv/`, `cmd/mydb/`).
 - A line-oriented TCP server accepting plain SQL or JSON requests (`server/`).
 - An interactive SQL client (`cmd/mydb/`).
 
@@ -28,7 +28,7 @@ flowchart TD
     TCP --> SQL[sql\nlexer, parser, executor]
     SQL --> TABLE[kv.Table\ntyped rows and schemas]
     TABLE --> STORE[kv.Store\nkey/value records]
-    STORE --> INDEX[B+Tree\nin-memory index]
+    STORE --> INDEX[B+Tree\npersisted index]
     STORE --> WAL[WAL\ncrash recovery]
     STORE --> POOL[BufferPool\nLRU dirty pages]
     POOL --> PAGER[Pager\n4 KiB pages]
@@ -109,7 +109,7 @@ The SQL client prints result sets as aligned tables:
 mydb/
 ├── cmd/mydb/main.go       # SQL client, server, and backup/restore commands
 ├── kv/
-│   ├── btree.go           # in-memory B+Tree index
+│   ├── btree.go           # B+Tree index and persistence
 │   ├── store.go           # append-only records and store operations
 │   ├── table.go           # typed schemas and rows
 │   └── wal.go             # write-ahead log and recovery
