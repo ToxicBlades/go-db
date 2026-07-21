@@ -35,3 +35,26 @@ func TestSQLRejectsUnsupported(t *testing.T) {
 		t.Fatal("expected parse error")
 	}
 }
+
+func TestSQLSemicolonAndListTables(t *testing.T) {
+	s, err := kv.Open(t.TempDir() + "/db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl, err := kv.NewTable(s, kv.Schema{Columns: []kv.Column{{Name: "id", Type: kv.IntType}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tbl.Close()
+	e := NewExecutor(map[string]*kv.Table{"users": tbl, "audit": tbl})
+	r, err := e.Execute("SHOW TABLES;")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Rows) != 2 || r.Rows[0]["table_name"] != "audit" || r.Rows[1]["table_name"] != "users" {
+		t.Fatalf("unexpected tables: %#v", r)
+	}
+	if _, err := Parse("SHOW TABLES; SELECT * FROM users;"); err == nil {
+		t.Fatal("expected trailing statement to be rejected")
+	}
+}

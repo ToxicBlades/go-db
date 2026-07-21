@@ -3,6 +3,7 @@ package sql
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -97,7 +98,7 @@ func Lex(input string) ([]Token, error) {
 		word := input[start:i]
 		upper := strings.ToUpper(word)
 		typ := Identifier
-		if upper == "SELECT" || upper == "FROM" || upper == "WHERE" || upper == "INSERT" || upper == "INTO" || upper == "VALUES" {
+		if upper == "SELECT" || upper == "FROM" || upper == "WHERE" || upper == "INSERT" || upper == "INTO" || upper == "VALUES" || upper == "SHOW" || upper == "TABLES" || upper == "LIST" {
 			typ = Keyword
 		}
 		if upper == "TRUE" || upper == "FALSE" {
@@ -129,6 +130,10 @@ type Insert struct {
 
 func (Insert) isStatement() {}
 
+type ListTables struct{}
+
+func (ListTables) isStatement() {}
+
 type Condition struct {
 	Column string
 	Value  any
@@ -145,13 +150,44 @@ func Parse(input string) (Statement, error) {
 		return nil, e
 	}
 	p := &parser{t: t}
-	if strings.EqualFold(p.cur().Lexeme, "SELECT") {
-		return p.selectStmt()
+	var s Statement
+	var err error
+	switch {
+	case strings.EqualFold(p.cur().Lexeme, "SELECT"):
+		s, err = p.selectStmt()
+	case strings.EqualFold(p.cur().Lexeme, "INSERT"):
+		s, err = p.insertStmt()
+	case strings.EqualFold(p.cur().Lexeme, "SHOW"):
+		err = p.want("SHOW")
+		if err == nil {
+			err = p.want("TABLES")
+		}
+		if err == nil {
+			s = ListTables{}
+		}
+	case strings.EqualFold(p.cur().Lexeme, "LIST"):
+		err = p.want("LIST")
+		if err == nil {
+			err = p.want("TABLES")
+		}
+		if err == nil {
+			s = ListTables{}
+		}
+	default:
+		err = fmt.Errorf("expected SELECT, INSERT, SHOW TABLES, or LIST TABLES")
 	}
-	if strings.EqualFold(p.cur().Lexeme, "INSERT") {
-		return p.insertStmt()
+	if err != nil {
+		return nil, err
 	}
-	return nil, fmt.Errorf("expected SELECT or INSERT")
+	// A semicolon terminates a statement. EOF is also accepted for backwards
+	// compatibility with callers that submit one complete statement at a time.
+	if p.cur().Type == Semicolon {
+		p.take()
+	}
+	if p.cur().Type != EOF {
+		return nil, fmt.Errorf("unexpected token after ;: %s", p.cur().Lexeme)
+	}
+	return s, nil
 }
 func (p *parser) cur() Token { return p.t[p.p] }
 func (p *parser) take() {
@@ -283,8 +319,21 @@ func (e *Executor) Execute(input string) (Result, error) {
 		return e.insert(q)
 	case Select:
 		return e.selectRows(q)
+	case ListTables:
+		return e.listTables()
 	}
 	return Result{}, fmt.Errorf("unsupported statement")
+}
+
+func (e *Executor) listTables() (Result, error) {
+	result := Result{Columns: []string{"table_name"}}
+	for name := range e.Tables {
+		result.Rows = append(result.Rows, kv.Row{"table_name": name})
+	}
+	sort.Slice(result.Rows, func(i, j int) bool {
+		return result.Rows[i]["table_name"].(string) < result.Rows[j]["table_name"].(string)
+	})
+	return result, nil
 }
 func (e *Executor) table(name string) (*kv.Table, error) {
 	t := e.Tables[strings.ToLower(name)]

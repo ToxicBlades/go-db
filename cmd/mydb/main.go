@@ -207,20 +207,60 @@ func sqlCommand(args []string) {
 			continue
 		}
 		if len(response.Rows) > 0 {
-			for _, column := range response.Columns {
-				fmt.Printf("%s\t", column)
-			}
-			fmt.Println()
-			for _, row := range response.Rows {
-				for _, column := range response.Columns {
-					fmt.Printf("%v\t", row[column])
-				}
-				fmt.Println()
-			}
+			fmt.Print(formatTable(response.Columns, response.Rows))
 		} else {
 			fmt.Printf("OK (%d rows affected)\n", response.Affected)
 		}
 	}
+}
+
+// formatTable renders query results as a compact, width-aware ASCII table.
+// Keeping this separate from the network protocol means JSON clients still
+// receive the same response while interactive users get readable output.
+func formatTable(columns []string, rows []map[string]any) string {
+	widths := make([]int, len(columns))
+	for i, column := range columns {
+		widths[i] = len(column)
+	}
+	values := make([][]string, len(rows))
+	for i, row := range rows {
+		values[i] = make([]string, len(columns))
+		for j, column := range columns {
+			values[i][j] = fmt.Sprint(row[column])
+			if len(values[i][j]) > widths[j] {
+				widths[j] = len(values[i][j])
+			}
+		}
+	}
+
+	var b strings.Builder
+	writeRule := func() {
+		b.WriteByte('+')
+		for _, width := range widths {
+			b.WriteString(strings.Repeat("-", width+2))
+			b.WriteByte('+')
+		}
+		b.WriteByte('\n')
+	}
+	writeRow := func(values []string) {
+		b.WriteByte('|')
+		for i, value := range values {
+			b.WriteByte(' ')
+			b.WriteString(value)
+			b.WriteString(strings.Repeat(" ", widths[i]-len(value)))
+			b.WriteString(" |")
+		}
+		b.WriteByte('\n')
+	}
+
+	writeRule()
+	writeRow(columns)
+	writeRule()
+	for _, row := range values {
+		writeRow(row)
+	}
+	writeRule()
+	return b.String()
 }
 
 func runSeed(executor *sql.Executor, path string) error {
