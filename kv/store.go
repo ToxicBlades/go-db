@@ -93,6 +93,11 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{path: path, pager: pager, wal: w, indexPath: path + ".idx", versions: make(map[string][]version)}
+	if err := s.validatePages(); err != nil {
+		w.close()
+		pager.Close()
+		return nil, fmt.Errorf("validate database: %w", err)
+	}
 	indexLoaded, err := s.loadIndex()
 	if err != nil {
 		w.close()
@@ -129,6 +134,34 @@ func Open(path string) (*Store, error) {
 		}
 	}
 	return s, nil
+}
+
+func (s *Store) validatePages() error {
+	for id := uint32(0); id < s.pager.NumPages(); id++ {
+		page, err := s.pager.ReadPage(id)
+		if err != nil {
+			return err
+		}
+		if binary.LittleEndian.Uint32(page.Data[0:4]) != id {
+			return fmt.Errorf("page %d has mismatched header ID", id)
+		}
+		free := page.FreeOffset()
+		if free < storage.HeaderSize || free > storage.PageSize {
+			return fmt.Errorf("page %d has invalid free offset %d", id, free)
+		}
+		next := page.NextPageID()
+		if next != storage.NoPage && next >= s.pager.NumPages() {
+			return fmt.Errorf("page %d points to nonexistent page %d", id, next)
+		}
+		for off := uint16(storage.HeaderSize); off < free; {
+			record, err := readRecord(page.Data[:], off)
+			if err != nil {
+				return fmt.Errorf("page %d: %w", id, err)
+			}
+			off += uint16(record.size)
+		}
+	}
+	return nil
 }
 
 // Close flushes and closes the underlying file.

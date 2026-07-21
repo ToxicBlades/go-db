@@ -114,10 +114,14 @@ go run ./cmd/go-db server --db db/go-db.db --addr :5433 --seed seed.sql
 go run ./cmd/go-db server --db db/go-db.db --addr :5433 --user alice --password secret
 go run ./cmd/go-db sql --addr :5433 --user alice --password secret
 
-# Snapshot or restore a database and its sibling .wal file
+# Snapshot or restore a closed database and its sidecars (.wal, .idx, .catalog)
 go run ./cmd/go-db backup db/go-db.db db/go-db.backup
 go run ./cmd/go-db restore db/go-db.backup db/go-db.db
 ```
+
+Backup validates page structure, the persisted index, WAL checksums, and the
+table catalog before staging sidecars for replacement. Do not run backup while
+the source database is open for writes.
 
 The SQL client prints result sets as aligned tables:
 

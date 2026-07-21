@@ -238,6 +238,10 @@ are stored in a catalog sidecar next to the database and are reopened when the
 server restarts. In the default setup, the available table is `users` with the
 schema `users(id INT, name STRING, active BOOL)`.
 
+Backups include the database, WAL, index, and catalog sidecars. The source
+database must be closed before running `go-db backup`; backup and restore
+validate the on-disk files before replacing the destination.
+
 ## Running SQL
 
 ### Prepared statements
