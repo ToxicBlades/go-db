@@ -32,6 +32,10 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "backup" || os.Args[1] == "restore") {
+		fileCommand(os.Args[1], os.Args[2:])
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "server" {
 		serverCommand(os.Args[2:])
 		return
@@ -129,6 +133,22 @@ func main() {
 			fmt.Printf("unknown command: %s\n", cmd)
 		}
 	}
+}
+
+func fileCommand(command string, args []string) {
+	if len(args) != 2 {
+		fatal(command, fmt.Errorf("usage: mydb %s <source-db> <destination-db>", command))
+	}
+	var err error
+	if command == "backup" {
+		err = kv.Backup(args[0], args[1])
+	} else {
+		err = kv.Restore(args[0], args[1])
+	}
+	if err != nil {
+		fatal(command, err)
+	}
+	fmt.Printf("%s complete: %s -> %s (including WAL)\n", command, args[0], args[1])
 }
 
 func serverCommand(args []string) {

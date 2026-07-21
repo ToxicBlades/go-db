@@ -5,6 +5,18 @@ intentionally small and is handled by `sql/sql.go`.
 
 ## Supported commands
 
+### `EXPLAIN`
+
+Shows the executor's query plan, including for simple queries that use a
+sequential scan:
+
+```sql
+EXPLAIN SELECT * FROM users WHERE active = true;
+```
+
+`EXPLAIN` supports `SELECT`, `INSERT`, `UPDATE`, and `DELETE` and does not
+execute the wrapped statement.
+
 ### `SHOW TABLES`
 
 Lists all tables registered with the database.

@@ -2,6 +2,7 @@ package sql
 
 import (
 	"mydb/kv"
+	"strings"
 	"testing"
 )
 
@@ -33,6 +34,29 @@ func TestSQLInsertSelectWhere(t *testing.T) {
 func TestSQLRejectsUnsupported(t *testing.T) {
 	if _, err := Parse("DELETE FROM users WHERE id ~~ 1"); err == nil {
 		t.Fatal("expected parse error")
+	}
+}
+
+func TestSQLExplainDoesNotExecute(t *testing.T) {
+	s, err := kv.Open(t.TempDir() + "/db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl, err := kv.NewTable(s, kv.Schema{Columns: []kv.Column{{Name: "id", Type: kv.IntType}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tbl.Close()
+	e := NewExecutor(map[string]*kv.Table{"users": tbl})
+	r, err := e.Execute("EXPLAIN SELECT * FROM users WHERE id = 1;")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Rows) != 1 || !strings.Contains(r.Rows[0]["plan"].(string), "Seq Scan on users") {
+		t.Fatalf("unexpected plan: %#v", r)
+	}
+	if rows, err := e.Execute("SELECT * FROM users"); err != nil || len(rows.Rows) != 0 {
+		t.Fatalf("EXPLAIN executed query: %#v %v", rows, err)
 	}
 }
 

@@ -11,7 +11,8 @@ working storage, indexing, typed tables, SQL, durability, and a TCP interface.
   and write-ahead logging (`kv/`).
 - Typed rows and schemas supporting `int`, `string`, and `bool` (`kv/table.go`).
 - A small SQL lexer, parser, and executor supporting `SELECT`, `INSERT`,
-  boolean and comparison `WHERE` expressions, and `SHOW TABLES`/`LIST TABLES` (`sql/`).
+  boolean and comparison `WHERE` expressions, `EXPLAIN`, and `SHOW TABLES`/`LIST TABLES` (`sql/`).
+- Backup and restore commands that snapshot the database file and its WAL sidecar (`kv/`, `cmd/mydb/`).
 - A line-oriented TCP server accepting plain SQL or JSON requests (`server/`).
 - Interactive key/value and SQL clients (`cmd/mydb/`).
 
@@ -78,6 +79,10 @@ The server can also be started directly:
 ```bash
 go run ./cmd/mydb server --db mydb.db --addr :5433 --seed seed.sql
 go run ./cmd/mydb sql --addr :5433
+
+# Snapshot or restore a database and its sibling .wal file
+go run ./cmd/mydb backup mydb.db mydb.backup
+go run ./cmd/mydb restore mydb.backup mydb.db
 ```
 
 The SQL client prints result sets as aligned tables:
