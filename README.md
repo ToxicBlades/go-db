@@ -7,7 +7,7 @@ able to explain) how real databases work under the hood — pages, buffer
 pools, B-trees, write-ahead logging — by building a small but *real*
 version of each piece.
 
-## Status: Milestone 1 — disk-backed key-value store
+## Status: Milestone 4 — typed rows and schemas
 
 What's implemented so far:
 
@@ -20,6 +20,8 @@ What's implemented so far:
   in the page header, forming a chain.
 - **CLI** (`cmd/mydb/`): a tiny interactive shell to `put`/`get`/`delete`
   keys against a real file on disk.
+- **Rows and schemas** (`kv/table.go`): typed `int`, `string`, and `bool`
+  columns with a `Table` abstraction over the store.
 
 ### On-disk format
 
@@ -88,7 +90,7 @@ OK
       track dirty pages, only hit disk on eviction or explicit flush
 - [x] **3. B+Tree index** — replace the linear scan with O(log n)
       lookups; implement node splits on insert and merges on delete
-- [ ] **4. Rows & schema** — typed columns (int, string, bool), a
+- [x] **4. Rows & schema** — typed columns (int, string, bool), a
       `Table` abstraction instead of raw key/value
 - [ ] **5. Tiny SQL layer** — hand-written lexer/parser for a subset of
       SQL (`SELECT`, `INSERT`, `WHERE`), plus a naive query executor
