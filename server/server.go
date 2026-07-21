@@ -89,12 +89,6 @@ func (s *Server) Close() error {
 
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
-	locked := false
-	defer func() {
-		if locked {
-			s.mu.Unlock()
-		}
-	}()
 	// Keep transaction state scoped to this client connection while sharing the
 	// server's table registry and underlying tables.
 	executor := sql.NewExecutor(s.Executor.Tables)
@@ -128,15 +122,12 @@ func (s *Server) handle(conn net.Conn) {
 			s.write(conn, Response{Error: "query is required"})
 			continue
 		}
-		if !locked {
-			s.mu.Lock()
-			locked = true
-		}
+		// Serialize each request, but do not hold the lock across the client's
+		// transaction. This allows transactions from different connections to
+		// interleave while protecting the shared table registry and storage.
+		s.mu.Lock()
 		result, err := executor.Execute(query)
-		if !executor.InTransaction() {
-			s.mu.Unlock()
-			locked = false
-		}
+		s.mu.Unlock()
 		if err != nil {
 			s.write(conn, Response{Error: err.Error()})
 			continue

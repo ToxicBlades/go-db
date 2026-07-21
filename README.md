@@ -56,9 +56,10 @@ sequenceDiagram
     S-->>C: JSON response
 ```
 
-The server serializes access to the shared database. A client with an open
-explicit transaction holds this database-level lock until it commits, rolls
-back, or disconnects.
+The server serializes individual requests against the shared database. An open
+explicit transaction does not hold the server lock between requests, so
+transactions from different clients can interleave while each keeps its own
+snapshot and write set.
 
 ## On-disk format
 

@@ -20,8 +20,9 @@
   rollback. The underlying WAL batch/commit marker is still future work.
 - [x] **Durable transaction metadata** — extend the WAL with transaction IDs,
   commit records, and recovery rules for committed versus incomplete batches.
-- [ ] **Concurrent transactions** — allow independent client transactions to
-  run concurrently while preserving snapshot isolation.
+- [x] **Concurrent transactions** — allow independent client transactions to
+  interleave between requests while preserving snapshot reads. Write conflict
+  detection remains a separate step.
 - [ ] **Conflict detection** — detect write/write conflicts and define the
   behavior for concurrent updates or deletes of the same key.
 - [ ] **Commit ordering** — use a single durable commit sequence so snapshots
