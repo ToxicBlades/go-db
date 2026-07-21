@@ -180,6 +180,9 @@ func (t *Table) Get(key string) (Row, bool, error) {
 // Snapshot returns a stable read point for this table's store.
 func (t *Table) Snapshot() Snapshot { return t.store.BeginSnapshot() }
 
+// ReleaseSnapshot ends a table snapshot lease.
+func (t *Table) ReleaseSnapshot(snapshot Snapshot) { t.store.ReleaseSnapshot(snapshot) }
+
 // ChangedSince reports whether a key changed after snapshot.
 func (t *Table) ChangedSince(snapshot Snapshot, key string) bool {
 	return t.store.ChangedSince(snapshot, []byte(key))

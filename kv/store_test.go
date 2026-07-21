@@ -89,6 +89,21 @@ func TestSnapshotSeesPreviousVersion(t *testing.T) {
 	}
 }
 
+func TestCompactRejectsActiveSnapshot(t *testing.T) {
+	s := openTestStore(t)
+	if err := s.Put([]byte("k"), []byte("v")); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := s.BeginSnapshot()
+	if err := s.Compact(); err == nil {
+		t.Fatal("expected compact with active snapshot to fail")
+	}
+	s.ReleaseSnapshot(snapshot)
+	if err := s.Compact(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDelete(t *testing.T) {
 	s := openTestStore(t)
 

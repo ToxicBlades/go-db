@@ -22,15 +22,16 @@ const (
 
 // Store is a key-value store built directly on top of the Pager.
 type Store struct {
-	path      string
-	pager     *storage.Pager
-	firstPage uint32
-	hasPages  bool
-	index     btree
-	wal       *wal
-	indexPath string
-	seq       uint64
-	versions  map[string][]version
+	path            string
+	pager           *storage.Pager
+	firstPage       uint32
+	hasPages        bool
+	index           btree
+	wal             *wal
+	indexPath       string
+	seq             uint64
+	versions        map[string][]version
+	activeSnapshots uint64
 }
 
 type version struct {
@@ -214,7 +215,14 @@ func (s *Store) Get(key []byte) (value []byte, found bool, err error) {
 }
 
 // BeginSnapshot returns a consistent read point for the store.
-func (s *Store) BeginSnapshot() Snapshot { return Snapshot(s.seq) }
+func (s *Store) BeginSnapshot() Snapshot { s.activeSnapshots++; return Snapshot(s.seq) }
+
+// ReleaseSnapshot allows obsolete versions to become eligible for compaction.
+func (s *Store) ReleaseSnapshot(snapshot Snapshot) {
+	if s.activeSnapshots > 0 {
+		s.activeSnapshots--
+	}
+}
 
 // ChangedSince reports whether key has a version newer than snapshot.
 func (s *Store) ChangedSince(snapshot Snapshot, key []byte) bool {
@@ -274,6 +282,9 @@ func (s *Store) Delete(key []byte) error {
 // Compact rewrites the store with one record for each live key, reclaiming
 // space occupied by overwritten values and tombstones.
 func (s *Store) Compact() error {
+	if s.activeSnapshots > 0 {
+		return fmt.Errorf("cannot compact while snapshots are active")
+	}
 	tmp := s.path + ".compact.tmp"
 	if err := os.Remove(tmp); err != nil && !os.IsNotExist(err) {
 		return err

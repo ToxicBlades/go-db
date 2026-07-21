@@ -1100,6 +1100,9 @@ func (e *Executor) commit() (Result, error) {
 		}
 	}
 	e.tx.status = 0
+	for _, state := range e.tx.tables {
+		state.t.ReleaseSnapshot(state.readAt)
+	}
 	e.tx = nil
 	return Result{}, nil
 }
@@ -1119,6 +1122,9 @@ func (e *Executor) rollback() (Result, error) {
 		}
 	}
 	e.tx.status = 0
+	for _, state := range e.tx.tables {
+		state.t.ReleaseSnapshot(state.readAt)
+	}
 	e.tx = nil
 	return Result{}, nil
 }

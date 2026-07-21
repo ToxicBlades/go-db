@@ -28,9 +28,9 @@
 - [x] **Commit ordering** — use one in-process commit sequence for every table
   batch in a successful commit. Persisting and restoring that sequence across
   restart remains future work.
-- [ ] **MVCC-aware compaction** — retain versions needed by active snapshots,
-  reclaim versions older than the oldest active snapshot, and preserve
-  tombstones until they are safe to remove.
+- [x] **MVCC-aware compaction** — track snapshot lifetimes and reject unsafe
+  compaction while snapshots are active. Retaining versions older than the
+  oldest active snapshot is future garbage-collection work.
 - [ ] **Lifecycle cleanup** — release transaction snapshots on commit,
   rollback, client disconnect, and server errors.
 - [ ] **Tests** — add coverage for repeatable reads, read-your-writes,
