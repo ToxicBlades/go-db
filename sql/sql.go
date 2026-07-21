@@ -838,6 +838,10 @@ func (e *Executor) Execute(input string) (Result, error) {
 }
 func (e *Executor) inTransaction() bool { return e.tx != nil }
 
+// InTransaction reports whether this executor owns an open explicit
+// transaction. The server uses it to keep that transaction isolated.
+func (e *Executor) InTransaction() bool { return e.inTransaction() }
+
 func (e *Executor) begin() (Result, error) {
 	if e.inTransaction() {
 		return Result{}, fmt.Errorf("transaction already in progress")

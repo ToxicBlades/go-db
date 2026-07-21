@@ -19,6 +19,10 @@ ROLLBACK;
 Only one explicit transaction may be active per client connection. `COMMIT`
 and `ROLLBACK` outside a transaction return an error.
 
+The TCP server uses database-level locking for isolation. A client with an
+open explicit transaction holds the lock until `COMMIT`, `ROLLBACK`, or
+disconnect; other clients wait while that transaction is active.
+
 ### `EXPLAIN`
 
 Shows the executor's query plan, including for simple queries that use a

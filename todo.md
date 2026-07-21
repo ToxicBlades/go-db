@@ -1,6 +1,5 @@
 ## Transactions / concurrency
-- **Explicit transactions** (`BEGIN`/`COMMIT`/`ROLLBACK`) — your WAL groundwork makes this a natural fit.
-- **Isolation / locking** — right now it sounds single-threaded per request; consider row-level or table-level locks if you want concurrent clients to write safely.
+
 - **MVCC** — more ambitious, but a great learning exercise given you already have append-only records with a "latest live value" model.
 
 ## Storage engine

@@ -54,6 +54,10 @@ sequenceDiagram
     S-->>C: JSON response
 ```
 
+The server serializes access to the shared database. A client with an open
+explicit transaction holds this database-level lock until it commits, rolls
+back, or disconnects.
+
 ## On-disk format
 
 Each page is 4 KiB. Its header stores the page ID, the next-page pointer, and

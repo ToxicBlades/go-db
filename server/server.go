@@ -69,6 +69,12 @@ func (s *Server) Close() error {
 
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
+	locked := false
+	defer func() {
+		if locked {
+			s.mu.Unlock()
+		}
+	}()
 	// Keep transaction state scoped to this client connection while sharing the
 	// server's table registry and underlying tables.
 	executor := sql.NewExecutor(s.Executor.Tables)
@@ -91,9 +97,15 @@ func (s *Server) handle(conn net.Conn) {
 			s.write(conn, Response{Error: "query is required"})
 			continue
 		}
-		s.mu.Lock()
+		if !locked {
+			s.mu.Lock()
+			locked = true
+		}
 		result, err := executor.Execute(query)
-		s.mu.Unlock()
+		if !executor.InTransaction() {
+			s.mu.Unlock()
+			locked = false
+		}
 		if err != nil {
 			s.write(conn, Response{Error: err.Error()})
 			continue
