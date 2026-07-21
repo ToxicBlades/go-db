@@ -60,6 +60,25 @@ func TestSQLExplainDoesNotExecute(t *testing.T) {
 	}
 }
 
+func TestSQLExplainTable(t *testing.T) {
+	s, err := kv.Open(t.TempDir() + "/db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl, err := kv.NewTable(s, kv.Schema{Columns: []kv.Column{{Name: "id", Type: kv.IntType}, {Name: "name", Type: kv.StringType}}, Constraints: map[string]kv.ColumnConstraint{"name": {NotNull: true, Unique: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tbl.Close()
+	r, err := NewExecutor(map[string]*kv.Table{"users": tbl}).Execute("EXPLAIN TABLE users")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Rows) != 2 || r.Rows[1]["column"] != "name" || r.Rows[1]["type"] != "STRING" || r.Rows[1]["nullable"] != false || r.Rows[1]["unique"] != true {
+		t.Fatalf("unexpected table explanation: %#v", r)
+	}
+}
+
 func TestSQLWhereBooleanAndComparisons(t *testing.T) {
 	s, err := kv.Open(t.TempDir() + "/db")
 	if err != nil {

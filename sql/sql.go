@@ -151,6 +151,11 @@ type Explain struct{ Statement Statement }
 
 func (Explain) isStatement() {}
 
+// ExplainTable describes the schema of a table rather than executing a query.
+type ExplainTable struct{ Table string }
+
+func (ExplainTable) isStatement() {}
+
 type Select struct {
 	Columns []string
 	Table   string
@@ -231,6 +236,16 @@ func Parse(input string) (Statement, error) {
 		p.take()
 		if p.cur().Type == EOF || p.cur().Type == Semicolon {
 			err = fmt.Errorf("expected statement after EXPLAIN")
+			break
+		}
+		if strings.EqualFold(p.cur().Lexeme, "TABLE") {
+			p.take()
+			if p.cur().Type == EOF || p.cur().Type == Semicolon {
+				err = fmt.Errorf("expected table name after EXPLAIN TABLE")
+				break
+			}
+			s = ExplainTable{Table: p.cur().Lexeme}
+			p.take()
 			break
 		}
 		var inner Statement
@@ -649,6 +664,8 @@ func (e *Executor) Execute(input string) (Result, error) {
 	switch q := s.(type) {
 	case Explain:
 		return e.explain(q.Statement)
+	case ExplainTable:
+		return e.explainTable(q)
 	case Insert:
 		return e.insert(q)
 	case Select:
@@ -688,6 +705,41 @@ func (e *Executor) explain(s Statement) (Result, error) {
 		return Result{}, fmt.Errorf("unsupported statement for EXPLAIN")
 	}
 	return Result{Columns: []string{"plan"}, Rows: []kv.Row{{"plan": plan}}}, nil
+}
+
+func (e *Executor) explainTable(q ExplainTable) (Result, error) {
+	t, err := e.table(q.Table)
+	if err != nil {
+		return Result{}, err
+	}
+	columns := []string{"column", "type", "nullable", "unique"}
+	result := Result{Columns: columns}
+	schema := t.Schema()
+	for _, column := range schema.Columns {
+		constraint := schema.Constraints[column.Name]
+		result.Rows = append(result.Rows, kv.Row{
+			"column":   column.Name,
+			"type":     columnTypeName(column.Type),
+			"nullable": !constraint.NotNull,
+			"unique":   constraint.Unique,
+		})
+	}
+	return result, nil
+}
+
+func columnTypeName(t kv.ColumnType) string {
+	switch t {
+	case kv.IntType:
+		return "INT"
+	case kv.StringType:
+		return "STRING"
+	case kv.BoolType:
+		return "BOOL"
+	case kv.FloatType:
+		return "FLOAT"
+	default:
+		return "UNKNOWN"
+	}
 }
 
 func mapKeys(m map[string]any) string {

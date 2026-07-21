@@ -17,6 +17,12 @@ EXPLAIN SELECT * FROM users WHERE active = true;
 `EXPLAIN` supports `SELECT`, `INSERT`, `UPDATE`, and `DELETE` and does not
 execute the wrapped statement.
 
+Use `EXPLAIN TABLE` to inspect a table's columns and constraints:
+
+```sql
+EXPLAIN TABLE users;
+```
+
 ### `SHOW TABLES`
 
 Lists all tables registered with the database.
