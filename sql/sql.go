@@ -23,6 +23,7 @@ const (
 	String
 	Boolean
 	Null
+	Parameter
 	Comma
 	LParen
 	RParen
@@ -48,6 +49,11 @@ func Lex(input string) ([]Token, error) {
 			continue
 		}
 		c := input[i]
+		if c == '?' {
+			out = append(out, Token{Parameter, fmt.Sprintf("$%d", countParameters(out))})
+			i++
+			continue
+		}
 		switch c {
 		case ',':
 			out = append(out, Token{Comma, ","})
@@ -145,6 +151,16 @@ func Lex(input string) ([]Token, error) {
 	}
 	out = append(out, Token{Type: EOF})
 	return out, nil
+}
+
+func countParameters(tokens []Token) int {
+	n := 0
+	for _, t := range tokens {
+		if t.Type == Parameter {
+			n++
+		}
+	}
+	return n
 }
 
 type Statement interface{ isStatement() }
@@ -747,6 +763,12 @@ func (p *parser) insertStmt() (Statement, error) {
 }
 func value(t Token) (any, error) {
 	switch t.Type {
+	case Parameter:
+		i, err := strconv.Atoi(strings.TrimPrefix(t.Lexeme, "$"))
+		if err != nil {
+			return nil, fmt.Errorf("invalid parameter")
+		}
+		return parameterValue{index: i}, nil
 	case Number:
 		if strings.Contains(t.Lexeme, ".") {
 			return strconv.ParseFloat(t.Lexeme, 64)
@@ -775,6 +797,116 @@ type transactionSnapshot struct {
 type Executor struct {
 	Tables map[string]*kv.Table
 	tx     []transactionSnapshot
+}
+
+// PreparedStatement is a parsed SQL statement that can be executed repeatedly
+// with different values. Parameters are written as '?' in the SQL text.
+type PreparedStatement struct {
+	executor   *Executor
+	statement  Statement
+	parameters int
+}
+
+// Prepare parses input once and returns a reusable parameterized statement.
+func (e *Executor) Prepare(input string) (*PreparedStatement, error) {
+	s, err := Parse(input)
+	if err != nil {
+		return nil, err
+	}
+	return &PreparedStatement{executor: e, statement: s, parameters: countStatementParameters(s)}, nil
+}
+
+// Execute binds args to '?' parameters and executes the prepared statement.
+func (p *PreparedStatement) Execute(args ...any) (Result, error) {
+	if len(args) != p.parameters {
+		return Result{}, fmt.Errorf("expected %d parameters, got %d", p.parameters, len(args))
+	}
+	s, err := bindStatement(p.statement, args)
+	if err != nil {
+		return Result{}, err
+	}
+	return p.executor.executeStatement(s)
+}
+
+type parameterValue struct{ index int }
+
+func countStatementParameters(s Statement) int {
+	max := -1
+	var walk func(any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case parameterValue:
+			if x.index > max {
+				max = x.index
+			}
+		case Insert:
+			for _, v := range x.Values {
+				walk(v)
+			}
+		case Update:
+			for _, v := range x.Set {
+				walk(v)
+			}
+			walk(x.Where)
+		case Delete:
+			walk(x.Where)
+		case Select:
+			walk(x.Where)
+		case Explain:
+			walk(x.Statement)
+		case *Condition:
+			if x != nil {
+				walk(x.Value)
+				walk(x.Left)
+				walk(x.Right)
+			}
+		}
+	}
+	walk(s)
+	return max + 1
+}
+func bindStatement(s Statement, args []any) (Statement, error) {
+	bind := func(v any) any {
+		if p, ok := v.(parameterValue); ok {
+			return args[p.index]
+		}
+		return v
+	}
+	var cond func(*Condition) *Condition
+	cond = func(c *Condition) *Condition {
+		if c == nil {
+			return nil
+		}
+		return &Condition{Column: c.Column, Operator: c.Operator, Value: bind(c.Value), Left: cond(c.Left), Right: cond(c.Right), Logic: c.Logic}
+	}
+	switch x := s.(type) {
+	case Insert:
+		values := append([]any(nil), x.Values...)
+		for i := range values {
+			values[i] = bind(values[i])
+		}
+		x.Values = values
+		return x, nil
+	case Update:
+		set := make(map[string]any, len(x.Set))
+		for k, v := range x.Set {
+			set[k] = bind(v)
+		}
+		x.Set = set
+		x.Where = cond(x.Where)
+		return x, nil
+	case Delete:
+		x.Where = cond(x.Where)
+		return x, nil
+	case Select:
+		x.Where = cond(x.Where)
+		return x, nil
+	case Explain:
+		inner, err := bindStatement(x.Statement, args)
+		return Explain{inner}, err
+	default:
+		return s, nil
+	}
 }
 
 func NewExecutor(tables map[string]*kv.Table) *Executor { return &Executor{Tables: tables} }
@@ -913,6 +1045,9 @@ func (e *Executor) executeOne(input string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	return e.executeStatement(s)
+}
+func (e *Executor) executeStatement(s Statement) (Result, error) {
 	switch q := s.(type) {
 	case Begin:
 		return e.begin()

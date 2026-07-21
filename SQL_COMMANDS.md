@@ -237,6 +237,20 @@ with the schema `users(id INT, name STRING, active BOOL)`.
 
 ## Running SQL
 
+### Prepared statements
+
+Go callers can parse a parameterized statement once and execute it repeatedly.
+Use `?` placeholders; arguments are bound as values and are never interpreted
+as SQL text:
+
+```go
+stmt, err := executor.Prepare("SELECT name FROM users WHERE id = ?")
+result, err := stmt.Execute(42)
+```
+
+Prepared statements are available through the Go API. The number of arguments
+must match the number of placeholders.
+
 Start the server and load the optional seed file:
 
 ```bash

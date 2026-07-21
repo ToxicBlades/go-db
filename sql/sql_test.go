@@ -31,6 +31,39 @@ func TestSQLInsertSelectWhere(t *testing.T) {
 	}
 }
 
+func TestPreparedStatementBindsParameters(t *testing.T) {
+	s, err := kv.Open(t.TempDir() + "/db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl, err := kv.NewTable(s, kv.Schema{Columns: []kv.Column{{Name: "id", Type: kv.IntType}, {Name: "name", Type: kv.StringType}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewExecutor(map[string]*kv.Table{"users": tbl})
+	insert, err := e.Prepare("INSERT INTO users (id, name) VALUES (?, ?)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := insert.Execute(1, "Ada"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := insert.Execute(2, "Bob"); err != nil {
+		t.Fatal(err)
+	}
+	selectOne, err := e.Prepare("SELECT name FROM users WHERE id = ?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := selectOne.Execute(2)
+	if err != nil || len(r.Rows) != 1 || r.Rows[0]["name"] != "Bob" {
+		t.Fatalf("prepared select = %#v, %v", r.Rows, err)
+	}
+	if _, err := selectOne.Execute(); err == nil {
+		t.Fatal("expected parameter count error")
+	}
+}
+
 func TestSQLRejectsUnsupported(t *testing.T) {
 	if _, err := Parse("DELETE FROM users WHERE id ~~ 1"); err == nil {
 		t.Fatal("expected parse error")
