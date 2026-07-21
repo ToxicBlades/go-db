@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"mydb/kv"
+	"go-db/kv"
 )
 
 func TestSQLInsertSelectWhere(t *testing.T) {

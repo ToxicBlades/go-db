@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"mydb/sql"
+	"go-db/sql"
 )
 
 type Request struct {

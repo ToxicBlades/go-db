@@ -1,4 +1,2 @@
 bin/
-mydb.db
-mydb.db.wal
-mydb.db.idx
+db/

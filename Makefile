@@ -14,10 +14,10 @@ lint:
 	$(GOLANGCI_LINT) run
 
 start:
-	trap 'exit 0' INT TERM; go run ./cmd/mydb server --db mydb.db --addr :5433 --seed seed.sql
+	trap 'exit 0' INT TERM; go run ./cmd/go-db server --db db/go-db.db --addr :5433 --seed seed.sql
 
 sql:
-	go run ./cmd/mydb sql --addr :5433
+	go run ./cmd/go-db sql --addr :5433
 
 build:
-	go build -o bin/mydb ./cmd/mydb
+	go build -o bin/go-db ./cmd/go-db

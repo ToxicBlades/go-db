@@ -11,7 +11,7 @@ import (
 	"time"
 	"unicode"
 
-	"mydb/kv"
+	"go-db/kv"
 )
 
 type TokenType int
@@ -1490,7 +1490,7 @@ func (e *Executor) create(q CreateTable) (Result, error) {
 	if e.Tables[n] != nil {
 		return Result{}, fmt.Errorf("table %q already exists", q.Table)
 	}
-	f, err := os.CreateTemp("", "mydb-table-")
+	f, err := os.CreateTemp("", "go-db-table-")
 	if err != nil {
 		return Result{}, err
 	}

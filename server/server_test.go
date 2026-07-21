@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"mydb/kv"
-	"mydb/sql"
+	"go-db/kv"
+	"go-db/sql"
 )
 
 func TestProtocol(t *testing.T) {

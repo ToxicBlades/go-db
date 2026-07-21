@@ -1,4 +1,4 @@
-// Command mydb provides the SQL client, database server, and backup/restore
+// Command go-db provides the SQL client, database server, and backup/restore
 // commands.
 package main
 
@@ -13,9 +13,9 @@ import (
 	"strings"
 	"syscall"
 
-	"mydb/kv"
-	"mydb/server"
-	"mydb/sql"
+	"go-db/kv"
+	"go-db/server"
+	"go-db/sql"
 )
 
 func main() {
@@ -32,7 +32,7 @@ func main() {
 		return
 	}
 	if len(os.Args) < 2 {
-		fmt.Println("usage: mydb server [options] | mydb sql [options] | mydb backup|restore <source> <destination>")
+		fmt.Println("usage: go-db server [options] | go-db sql [options] | go-db backup|restore <source> <destination>")
 		os.Exit(1)
 	}
 	os.Exit(1)
@@ -40,7 +40,7 @@ func main() {
 
 func fileCommand(command string, args []string) {
 	if len(args) != 2 {
-		fatal(command, fmt.Errorf("usage: mydb %s <source-db> <destination-db>", command))
+		fatal(command, fmt.Errorf("usage: go-db %s <source-db> <destination-db>", command))
 	}
 	var err error
 	if command == "backup" {
@@ -56,7 +56,7 @@ func fileCommand(command string, args []string) {
 
 func serverCommand(args []string) {
 	flags := flag.NewFlagSet("server", flag.ExitOnError)
-	dbPath := flags.String("db", "mydb.db", "database file")
+	dbPath := flags.String("db", "db/go-db.db", "database file")
 	addr := flags.String("addr", ":5433", "TCP address to listen on")
 	seedPath := flags.String("seed", "seed.sql", "SQL file to run before starting")
 	username := flags.String("user", "", "TCP username (enables authentication)")
@@ -92,7 +92,7 @@ func serverCommand(args []string) {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	go func() { <-signals; _ = s.Close() }()
-	fmt.Printf("mydb server listening on %s (database: %s)\n", *addr, *dbPath)
+	fmt.Printf("go-db server listening on %s (database: %s)\n", *addr, *dbPath)
 	if err := s.ListenAndServe(*addr); err != nil && err != net.ErrClosed {
 		_ = store.Close()
 		fatal("server", err)
@@ -128,7 +128,7 @@ func sqlCommand(args []string) {
 		}
 	}
 
-	fmt.Printf("connected to mydb at %s (type SQL or exit)\n", *addr)
+	fmt.Printf("connected to go-db at %s (type SQL or exit)\n", *addr)
 	scanner := bufio.NewScanner(os.Stdin)
 	reader := bufio.NewReader(conn)
 	var queryLines []string

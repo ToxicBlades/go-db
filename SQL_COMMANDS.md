@@ -1,6 +1,6 @@
 # SQL Commands
 
-This document describes the SQL supported by `mydb`. The SQL implementation is
+This document describes the SQL supported by `go-db`. The SQL implementation is
 intentionally small and is handled by `sql/sql.go`.
 
 ## Supported commands
@@ -255,13 +255,13 @@ must match the number of placeholders.
 Start the server and load the optional seed file:
 
 ```bash
-go run ./cmd/mydb server --db mydb.db --addr :5433 --seed seed.sql
+go run ./cmd/go-db server --db db/go-db.db --addr :5433 --seed seed.sql
 ```
 
 Connect with the interactive SQL client:
 
 ```bash
-go run ./cmd/mydb sql --addr :5433
+go run ./cmd/go-db sql --addr :5433
 ```
 
 When the server is started with `--user` and `--password`, pass the same

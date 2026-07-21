@@ -33,7 +33,7 @@ func FuzzWALReplay(f *testing.F) {
 }
 
 func walRecord(op byte, key, value []byte) []byte {
-	dir, err := os.MkdirTemp("", "mydb-wal-seed-")
+	dir, err := os.MkdirTemp("", "go-db-wal-seed-")
 	if err != nil {
 		panic(err)
 	}

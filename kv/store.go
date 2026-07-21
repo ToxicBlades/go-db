@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"os"
 
-	"mydb/storage"
+	"go-db/storage"
 )
 
 const (

@@ -1,6 +1,6 @@
-# mydb
+# go-db
 
-`mydb` is a small database engine written in Go. It is a learning project with
+`go-db` is a small database engine written in Go. It is a learning project with
 working storage, indexing, typed tables, SQL, durability, and a TCP interface.
 
 ## What is implemented
@@ -18,15 +18,15 @@ working storage, indexing, typed tables, SQL, durability, and a TCP interface.
   `ORDER BY`, `LIMIT`/`OFFSET`, grouped aggregates, explicit transactions
   (`BEGIN`/`COMMIT`/`ROLLBACK`), `EXPLAIN`, and
   `SHOW TABLES`/`LIST TABLES` (`sql/`).
-- Backup and restore commands that snapshot the database file and its WAL and index sidecars (`kv/`, `cmd/mydb/`).
+- Backup and restore commands that snapshot the database file and its WAL and index sidecars (`kv/`, `cmd/go-db/`).
 - A line-oriented TCP server accepting plain SQL or JSON requests (`server/`).
-- An interactive SQL client (`cmd/mydb/`).
+- An interactive SQL client (`cmd/go-db/`).
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    CLI[cmd/mydb\ninteractive SQL client] --> TCP[server\nline-oriented TCP]
+    CLI[cmd/go-db\ninteractive SQL client] --> TCP[server\nline-oriented TCP]
     TCP --> SQL[sql\nlexer, parser, executor]
     SQL --> TABLE[kv.Table\ntyped rows and schemas]
     TABLE --> STORE[kv.Store\nkey/value records]
@@ -96,13 +96,13 @@ The server can also be started directly. Authentication is enabled by providing
 both `--user` and `--password`; clients must provide the same credentials:
 
 ```bash
-go run ./cmd/mydb server --db mydb.db --addr :5433 --seed seed.sql
-go run ./cmd/mydb server --db mydb.db --addr :5433 --user alice --password secret
-go run ./cmd/mydb sql --addr :5433 --user alice --password secret
+go run ./cmd/go-db server --db db/go-db.db --addr :5433 --seed seed.sql
+go run ./cmd/go-db server --db db/go-db.db --addr :5433 --user alice --password secret
+go run ./cmd/go-db sql --addr :5433 --user alice --password secret
 
 # Snapshot or restore a database and its sibling .wal file
-go run ./cmd/mydb backup mydb.db mydb.backup
-go run ./cmd/mydb restore mydb.backup mydb.db
+go run ./cmd/go-db backup db/go-db.db db/go-db.backup
+go run ./cmd/go-db restore db/go-db.backup db/go-db.db
 ```
 
 The SQL client prints result sets as aligned tables:
@@ -118,8 +118,9 @@ The SQL client prints result sets as aligned tables:
 ## Project layout
 
 ```text
-mydb/
-├── cmd/mydb/main.go       # SQL client, server, and backup/restore commands
+go-db/
+├── cmd/go-db/main.go       # SQL client, server, and backup/restore commands
+├── db/                     # database files and sidecars
 ├── kv/
 │   ├── btree.go           # B+Tree index and persistence
 │   ├── store.go           # append-only records and store operations
