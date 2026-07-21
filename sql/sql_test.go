@@ -250,6 +250,42 @@ func TestSQLCatalogRestoresCreatedTable(t *testing.T) {
 	}
 }
 
+func TestSQLCatalogRestoresAlteredTableAndRows(t *testing.T) {
+	dir := t.TempDir()
+	catalog, err := kv.OpenCatalog(filepath.Join(dir, "db.catalog"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewExecutorWithCatalog(map[string]*kv.Table{}, catalog)
+	if _, err := e.Execute("CREATE TABLE accounts (name STRING NOT NULL UNIQUE)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Execute("INSERT INTO accounts (name) VALUES ('Ada')"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Execute("ALTER TABLE accounts RENAME COLUMN name TO display_name"); err != nil {
+		t.Fatal(err)
+	}
+	entry := catalog.Entries()[0]
+	if err := e.Tables["accounts"].Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	table, err := kv.OpenTable(entry.Path, entry.Schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer table.Close()
+	reopened := NewExecutorWithCatalog(map[string]*kv.Table{"accounts": table}, catalog)
+	r, err := reopened.Execute("SELECT display_name FROM accounts")
+	if err != nil || len(r.Rows) != 1 || r.Rows[0]["display_name"] != "Ada" {
+		t.Fatalf("restored altered table = %#v, %v", r.Rows, err)
+	}
+	if _, err := reopened.Execute("INSERT INTO accounts (display_name) VALUES ('Ada')"); err == nil {
+		t.Fatal("expected restored unique constraint to reject duplicate")
+	}
+}
+
 func TestSQLExplicitTransactions(t *testing.T) {
 	s, err := kv.Open(t.TempDir() + "/db")
 	if err != nil {

@@ -26,13 +26,13 @@ indexes are rebuilt in memory from durable table rows on restart.
 - [x] Persist or rebuild secondary indexes on table open. Define an index
   version/metadata format and make index creation, updates, deletes, and schema
   changes crash-safe.
-- [ ] Add end-to-end restart tests: create/alter/drop tables, insert/update/
+- [x] Add end-to-end restart tests: create/alter/drop tables, insert/update/
   delete rows, reopen the database, and verify schemas, constraints, rows, and
   indexes all survive.
-- [ ] Make backup consistent and safer: coordinate with an open store, flush
+- [x] Make backup consistent and safer: coordinate with an open store, flush
   and sync before copying, copy to temporary files, then atomically rename;
   restore should validate all required sidecars before replacing anything.
-- [ ] Add corruption detection and recovery diagnostics (page/WAL checksums,
+- [x] Add corruption detection and recovery diagnostics (page/WAL checksums,
   length validation, truncated-record handling, and clearer repair errors).
 
 ### SQL and query execution
