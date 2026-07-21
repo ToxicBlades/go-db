@@ -18,7 +18,7 @@
 - [x] **Atomic commit** — stage a transaction's writes and apply them at
   `COMMIT`; make them visible only after commit, and discard staged writes on
   rollback. The underlying WAL batch/commit marker is still future work.
-- [ ] **Durable transaction metadata** — extend the WAL with transaction IDs,
+- [x] **Durable transaction metadata** — extend the WAL with transaction IDs,
   commit records, and recovery rules for committed versus incomplete batches.
 - [ ] **Concurrent transactions** — allow independent client transactions to
   run concurrently while preserving snapshot isolation.

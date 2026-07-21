@@ -59,6 +59,33 @@ type Table struct {
 	secondary map[string]map[string]map[string]struct{}
 }
 
+// ApplyBatch commits encoded table rows through the store's transactional WAL.
+func (t *Table) ApplyBatch(id uint64, ops []BatchOp) error {
+	return t.store.ApplyBatch(id, ops)
+}
+
+// ApplyRowsBatch encodes and commits table rows through the transactional WAL.
+func (t *Table) ApplyRowsBatch(id uint64, writes map[string]TransactionRow) error {
+	ops := make([]BatchOp, 0, len(writes))
+	for key, write := range writes {
+		if write.Deleted {
+			ops = append(ops, BatchOp{Key: []byte(key), Delete: true})
+			continue
+		}
+		value, err := t.encode(write.Row)
+		if err != nil {
+			return err
+		}
+		ops = append(ops, BatchOp{Key: []byte(key), Value: value})
+	}
+	return t.store.ApplyBatch(id, ops)
+}
+
+type TransactionRow struct {
+	Row     Row
+	Deleted bool
+}
+
 func NewTable(store *Store, schema Schema) (*Table, error) {
 	if store == nil {
 		return nil, fmt.Errorf("nil store")

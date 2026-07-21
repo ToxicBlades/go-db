@@ -10,13 +10,22 @@ import (
 )
 
 const (
-	walMagic       = "MYWAL01\x00"
-	walHeader      = 8 + 1 + 4 + 4 + 4 // magic, op, key length, value length, checksum
-	walPut    byte = 1
-	walDelete byte = 2
+	walMagic         = "MYWAL01\x00"
+	walHeader        = 8 + 1 + 4 + 4 + 4 // magic, op, key length, value length, checksum
+	walPut      byte = 1
+	walDelete   byte = 2
+	walTxPut    byte = 3
+	walTxDelete byte = 4
+	walTxCommit byte = 5
 )
 
 type wal struct{ file *os.File }
+
+// BatchOp describes one durable transaction operation.
+type BatchOp struct {
+	Key, Value []byte
+	Delete     bool
+}
 
 func (w *wal) size() (int64, error) {
 	info, err := w.file.Stat()
@@ -56,6 +65,22 @@ func (w *wal) append(op byte, key, value []byte) error {
 	return nil
 }
 
+func (w *wal) appendTransaction(id uint64, ops []BatchOp) error {
+	var idbuf [8]byte
+	binary.LittleEndian.PutUint64(idbuf[:], id)
+	for _, op := range ops {
+		key := append(append([]byte{}, idbuf[:]...), op.Key...)
+		kind := walTxPut
+		if op.Delete {
+			kind = walTxDelete
+		}
+		if err := w.append(kind, key, op.Value); err != nil {
+			return err
+		}
+	}
+	return w.append(walTxCommit, idbuf[:], nil)
+}
+
 func (w *wal) replay(apply func(byte, []byte, []byte) error) error {
 	if _, err := w.file.Seek(0, io.SeekStart); err != nil {
 		return err
@@ -66,6 +91,7 @@ func (w *wal) replay(apply func(byte, []byte, []byte) error) error {
 	}
 	remaining := info.Size()
 	r := bufio.NewReader(w.file)
+	pending := make(map[uint64][]BatchOp)
 	for {
 		h := make([]byte, walHeader)
 		_, err := io.ReadFull(r, h)
@@ -93,8 +119,33 @@ func (w *wal) replay(apply func(byte, []byte, []byte) error) error {
 		if crc32.ChecksumIEEE(payload) != binary.LittleEndian.Uint32(h[17:21]) {
 			return fmt.Errorf("WAL checksum mismatch")
 		}
-		if h[8] != walPut && h[8] != walDelete {
+		if h[8] != walPut && h[8] != walDelete && h[8] != walTxPut && h[8] != walTxDelete && h[8] != walTxCommit {
 			return fmt.Errorf("unknown WAL operation %d", h[8])
+		}
+		if h[8] == walTxPut || h[8] == walTxDelete {
+			if len(body[:keyLen]) < 8 {
+				return fmt.Errorf("invalid transaction WAL key")
+			}
+			id := binary.LittleEndian.Uint64(body[:8])
+			pending[id] = append(pending[id], BatchOp{Key: append([]byte(nil), body[8:keyLen]...), Value: append([]byte(nil), body[keyLen:]...), Delete: h[8] == walTxDelete})
+			continue
+		}
+		if h[8] == walTxCommit {
+			if len(body[:keyLen]) != 8 {
+				return fmt.Errorf("invalid transaction commit")
+			}
+			id := binary.LittleEndian.Uint64(body[:8])
+			for _, op := range pending[id] {
+				kind := walPut
+				if op.Delete {
+					kind = walDelete
+				}
+				if err := apply(kind, op.Key, op.Value); err != nil {
+					return err
+				}
+			}
+			delete(pending, id)
+			continue
 		}
 		if err := apply(h[8], body[:keyLen], body[keyLen:]); err != nil {
 			return err

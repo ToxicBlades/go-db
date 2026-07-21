@@ -43,6 +43,26 @@ type version struct {
 // Snapshots are immutable and remain valid while newer writes are appended.
 type Snapshot uint64
 
+// ApplyBatch durably commits a group of puts and deletes as one WAL transaction.
+func (s *Store) ApplyBatch(id uint64, ops []BatchOp) error {
+	if err := s.wal.appendTransaction(id, ops); err != nil {
+		return err
+	}
+	for _, op := range ops {
+		flag := flagLive
+		if op.Delete {
+			flag = flagTombstone
+		}
+		if err := s.append(op.Key, op.Value, flag); err != nil {
+			return err
+		}
+		if op.Delete {
+			s.index.delete(op.Key)
+		}
+	}
+	return s.saveIndex()
+}
+
 // Stats is a point-in-time snapshot of storage metrics for this store.
 type Stats struct {
 	BufferPool storage.BufferPoolStats

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -811,9 +812,12 @@ type transactionWrite struct {
 // use the existing table APIs in this milestone; the read timestamp and
 // rollback image are ready for the pending-write layer that follows.
 type transaction struct {
+	id     uint64
 	status transactionStatus
 	tables []transactionTableState
 }
+
+var nextTransactionID uint64
 
 type Executor struct {
 	Tables map[string]*kv.Table
@@ -1059,7 +1063,7 @@ func (e *Executor) begin() (Result, error) {
 	if e.inTransaction() {
 		return Result{}, fmt.Errorf("transaction already in progress")
 	}
-	tx := &transaction{status: transactionActive, tables: make([]transactionTableState, 0, len(e.Tables))}
+	tx := &transaction{id: atomic.AddUint64(&nextTransactionID, 1), status: transactionActive, tables: make([]transactionTableState, 0, len(e.Tables))}
 	for _, t := range e.Tables {
 		readAt := t.Snapshot()
 		rows, err := t.Scan()
@@ -1077,19 +1081,12 @@ func (e *Executor) commit() (Result, error) {
 		return Result{}, fmt.Errorf("no transaction in progress")
 	}
 	for _, state := range e.tx.tables {
+		writes := make(map[string]kv.TransactionRow, len(state.writes))
 		for key, write := range state.writes {
-			if write.deleted {
-				if err := state.t.Delete(key); err != nil {
-					return Result{}, err
-				}
-			}
+			writes[key] = kv.TransactionRow{Row: write.row, Deleted: write.deleted}
 		}
-		for key, write := range state.writes {
-			if !write.deleted {
-				if err := state.t.Insert(key, write.row); err != nil {
-					return Result{}, err
-				}
-			}
+		if err := state.t.ApplyRowsBatch(e.tx.id, writes); err != nil {
+			return Result{}, err
 		}
 	}
 	e.tx.status = 0
