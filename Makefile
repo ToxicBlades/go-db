@@ -2,7 +2,18 @@ GO_BIN := $(shell go env GOPATH)/bin
 GOFUMPT := $(GO_BIN)/gofumpt
 GOLANGCI_LINT := $(GO_BIN)/golangci-lint
 
-.PHONY: test fmt lint start sql build
+.PHONY: help test fmt lint start sql build docker-build
+
+help:
+	@echo "Available targets:"
+	@echo "  help          Show this help message"
+	@echo "  test          Run tests"
+	@echo "  fmt           Format Go files"
+	@echo "  lint          Run the linter"
+	@echo "  start         Start the database server"
+	@echo "  sql           Connect to the database with the SQL client"
+	@echo "  build         Build the go-db binary"
+	@echo "  docker-build  Build the Docker image"
 
 test:
 	go test ./...
@@ -21,3 +32,6 @@ sql:
 
 build:
 	go build -o bin/go-db ./cmd/go-db
+
+docker-build:
+	docker build -t go-db .

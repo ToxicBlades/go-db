@@ -92,6 +92,18 @@ make start
 make sql
 ```
 
+### Docker
+
+Build and start the server with its database persisted in a Docker volume:
+
+```bash
+make docker-build
+docker run --rm --name go-db -p 5433:5433 -v go-db-data:/data go-db
+```
+
+The server is available on port `5433`. Connect with the SQL client from the
+host using `make sql`, or connect to `localhost:5433` with a TCP client.
+
 The server can also be started directly. Authentication is enabled by providing
 both `--user` and `--password`; clients must provide the same credentials:
 
