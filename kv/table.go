@@ -54,6 +54,9 @@ type Row map[string]any
 type Table struct {
 	store  *Store
 	schema Schema
+	// secondary maps a typed column value to primary keys. It is rebuilt from
+	// the durable primary-key index when a table is opened.
+	secondary map[string]map[string]map[string]struct{}
 }
 
 func NewTable(store *Store, schema Schema) (*Table, error) {
@@ -63,7 +66,21 @@ func NewTable(store *Store, schema Schema) (*Table, error) {
 	if err := schema.validate(); err != nil {
 		return nil, err
 	}
-	return &Table{store: store, schema: schema}, nil
+	t := &Table{store: store, schema: schema, secondary: map[string]map[string]map[string]struct{}{}}
+	if len(schema.Columns) == 0 {
+		return nil, fmt.Errorf("schema has no columns")
+	}
+	for _, c := range schema.Columns[1:] {
+		t.secondary[c.Name] = map[string]map[string]struct{}{}
+	}
+	rows, err := t.Scan()
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		t.indexRow(fmt.Sprint(row[schema.Columns[0].Name]), row)
+	}
+	return t, nil
 }
 
 // OpenTable opens a table backed by path using schema. The schema is supplied by
@@ -92,7 +109,18 @@ func (t *Table) Insert(key string, row Row) error {
 	if err := t.validateConstraints(key, row); err != nil {
 		return err
 	}
-	return t.store.Put([]byte(key), b)
+	old, found, err := t.Get(key)
+	if err != nil {
+		return err
+	}
+	if err = t.store.Put([]byte(key), b); err != nil {
+		return err
+	}
+	if found {
+		t.unindexRow(key, old)
+	}
+	t.indexRow(key, row)
+	return nil
 }
 
 func (t *Table) validateConstraints(key string, row Row) error {
@@ -122,7 +150,56 @@ func (t *Table) Get(key string) (Row, bool, error) {
 	return r, true, err
 }
 
-func (t *Table) Delete(key string) error { return t.store.Delete([]byte(key)) }
+func (t *Table) Delete(key string) error {
+	old, found, err := t.Get(key)
+	if err != nil || !found {
+		return err
+	}
+	if err = t.store.Delete([]byte(key)); err == nil {
+		t.unindexRow(key, old)
+	}
+	return err
+}
+
+func indexValue(v any) string { return fmt.Sprintf("%T:%#v", v, v) }
+
+func (t *Table) indexRow(key string, row Row) {
+	for _, c := range t.schema.Columns[1:] {
+		v := indexValue(row[c.Name])
+		if t.secondary[c.Name][v] == nil {
+			t.secondary[c.Name][v] = map[string]struct{}{}
+		}
+		t.secondary[c.Name][v][key] = struct{}{}
+	}
+}
+func (t *Table) unindexRow(key string, row Row) {
+	for _, c := range t.schema.Columns[1:] {
+		v := indexValue(row[c.Name])
+		delete(t.secondary[c.Name][v], key)
+		if len(t.secondary[c.Name][v]) == 0 {
+			delete(t.secondary[c.Name], v)
+		}
+	}
+}
+
+// Find returns rows matching an equality predicate on a secondary-indexed column.
+func (t *Table) Find(column string, value any) ([]Row, error) {
+	keys, ok := t.secondary[column][indexValue(value)]
+	if !ok {
+		return nil, nil
+	}
+	rows := make([]Row, 0, len(keys))
+	for key := range keys {
+		row, found, err := t.Get(key)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			rows = append(rows, row)
+		}
+	}
+	return rows, nil
+}
 
 // Scan returns every currently live row. It is intentionally a full scan;
 // callers that need efficient point lookups should use Get.

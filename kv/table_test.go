@@ -2,6 +2,39 @@ package kv
 
 import "testing"
 
+func TestSecondaryIndexFindAndUpdate(t *testing.T) {
+	s, err := Open(t.TempDir() + "/table.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl, err := NewTable(s, Schema{Columns: []Column{{"id", IntType}, {"name", StringType}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tbl.Close()
+	if err := tbl.Insert("1", Row{"id": 1, "name": "Ada"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tbl.Insert("2", Row{"id": 2, "name": "Bob"}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := tbl.Find("name", "Ada")
+	if err != nil || len(rows) != 1 || rows[0]["id"] != 1 {
+		t.Fatalf("Find: %#v, %v", rows, err)
+	}
+	if _, err = tbl.Update(func(r Row) bool { return r["id"] == 1 }, Row{"name": "Eve"}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err = tbl.Find("name", "Ada")
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("stale index: %#v, %v", rows, err)
+	}
+	rows, err = tbl.Find("name", "Eve")
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("updated index: %#v, %v", rows, err)
+	}
+}
+
 func TestTableTypedRows(t *testing.T) {
 	path := t.TempDir() + "/table.db"
 	s, err := Open(path)

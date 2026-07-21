@@ -78,6 +78,9 @@ SELECT * FROM users;
 Conditions support `=`, `!=`, `<`, `>`, `<=`, and `>=`, combined with `AND`,
 `OR`, and parentheses. `AND` binds more tightly than `OR`:
 
+Equality filters on non-key columns use automatically maintained secondary
+indexes. Other predicates continue to use a sequential scan.
+
 ```sql
 SELECT name, active
 FROM users

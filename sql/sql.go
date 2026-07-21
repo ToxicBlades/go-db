@@ -1477,6 +1477,13 @@ func (e *Executor) selectRows(q Select) (Result, error) {
 		return Result{}, err
 	}
 	rows, err := t.Scan()
+	if q.Where != nil && q.JoinTable == "" && q.Where.Operator == "=" && q.Where.Column != "" && q.Where.Left == nil && q.Where.Right == nil {
+		if indexed, findErr := t.Find(q.Where.Column, q.Where.Value); findErr != nil {
+			return Result{}, findErr
+		} else if indexed != nil {
+			rows = indexed
+		}
+	}
 	if err != nil {
 		return Result{}, fmt.Errorf("reading table %q: %w (database rows may have been created with a different schema; use a new database file or restore the matching schema)", q.Table, err)
 	}

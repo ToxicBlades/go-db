@@ -11,6 +11,8 @@ working storage, indexing, typed tables, SQL, durability, and a TCP interface.
   write-ahead logging, and explicit compaction (`kv/`).
 - Typed rows and schemas supporting `int`, `string`, `bool`, `float`, bytes,
   and timestamps (`kv/table.go`).
+- Automatically maintained in-memory secondary indexes for equality lookups on
+  non-key table columns (`kv/table.go`).
 - A small SQL lexer, parser, and executor supporting `SELECT`, `INSERT`,
   `WHERE`, nested-loop inner joins, batched transactional requests,
   `ORDER BY`, `LIMIT`/`OFFSET`, grouped aggregates, explicit transactions
