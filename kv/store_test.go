@@ -151,3 +151,43 @@ func TestPersistsAcrossReopen(t *testing.T) {
 		t.Fatalf("expected 'v' after reopen, got %q (found=%v)", val, found)
 	}
 }
+
+func TestWALRecoversOperationBeforePageWrite(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+
+	// Simulate a crash after the WAL fsync but before the database page write.
+	w, err := openWAL(path)
+	if err != nil {
+		t.Fatalf("open WAL: %v", err)
+	}
+	if err := w.append(walPut, []byte("recovered"), []byte("value")); err != nil {
+		t.Fatalf("append WAL: %v", err)
+	}
+	if err := w.close(); err != nil {
+		t.Fatalf("close WAL: %v", err)
+	}
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+	value, found, err := s.Get([]byte("recovered"))
+	if err != nil || !found || string(value) != "value" {
+		t.Fatalf("recovered value = %q, found=%v, err=%v", value, found, err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("close recovered store: %v", err)
+	}
+
+	// A clean close checkpoints the WAL, so reopening does not duplicate work.
+	s, err = Open(path)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer s.Close()
+	value, found, err = s.Get([]byte("recovered"))
+	if err != nil || !found || string(value) != "value" {
+		t.Fatalf("reopened value = %q, found=%v, err=%v", value, found, err)
+	}
+}

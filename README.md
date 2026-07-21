@@ -7,7 +7,7 @@ able to explain) how real databases work under the hood — pages, buffer
 pools, B-trees, write-ahead logging — by building a small but *real*
 version of each piece.
 
-## Status: Milestone 5 — tiny SQL layer
+## Status: Milestone 6 — write-ahead logging
 
 What's implemented so far:
 
@@ -24,6 +24,9 @@ What's implemented so far:
   columns with a `Table` abstraction over the store.
 - **Tiny SQL layer** (`sql/`): hand-written lexer/parser and naive executor
   for `SELECT`, `INSERT`, and equality `WHERE` queries.
+- **Write-ahead log** (`kv/`): Put/Delete operations are fsynced to a sidecar
+  WAL before page changes; startup replays complete records, and clean close
+  checkpoints the log.
 
 ### On-disk format
 
@@ -96,7 +99,7 @@ OK
       `Table` abstraction instead of raw key/value
 - [x] **5. Tiny SQL layer** — hand-written lexer/parser for a subset of
       SQL (`SELECT`, `INSERT`, `WHERE`), plus a naive query executor
-- [ ] **6. Write-ahead log** — durability and crash recovery: log
+- [x] **6. Write-ahead log** — durability and crash recovery: log
       operations before applying them, replay on restart
 - [ ] **7. Network protocol** (stretch) — a TCP server so it can be
       queried like a real database, not just via the CLI
