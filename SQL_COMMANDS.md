@@ -24,6 +24,8 @@ Transactions use snapshot reads and read their own writes. Requests from
 different clients can interleave. A commit that writes a key changed after
 `BEGIN` fails with a transaction conflict; the transaction remains open so it
 can be rolled back. Disconnecting a client rolls back its open transaction.
+The server serializes individual requests against shared storage; concurrent
+clients are safe, while transaction state remains local to each connection.
 
 ### `EXPLAIN`
 

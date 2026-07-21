@@ -52,7 +52,7 @@ indexes are not reconstructed from durable catalog metadata on restart.
 
 ### Transactions and concurrency
 
-- [ ] Put transaction state and table/catalog changes behind explicit
+- [x] Put transaction state and table/catalog changes behind explicit
   synchronization. Add concurrent reader/writer and concurrent commit tests
   under `go test -race`.
 - [ ] Decide and document the isolation/locking model, especially write-write

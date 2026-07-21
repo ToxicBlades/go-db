@@ -3,8 +3,10 @@ package server
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 
 	"go-db/kv"
@@ -84,5 +86,65 @@ func TestAuthentication(t *testing.T) {
 	}
 	if response.OK || response.Error != "authentication failed" {
 		t.Fatalf("failed authentication response: %#v", response)
+	}
+}
+
+func TestConcurrentClientsSerializeStorageRequests(t *testing.T) {
+	store, err := kv.Open(t.TempDir() + "/db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	table, err := kv.NewTable(store, kv.Schema{Columns: []kv.Column{{Name: "id", Type: kv.IntType}, {Name: "name", Type: kv.StringType}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(sql.NewExecutor(map[string]*kv.Table{"users": table}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const clients, writesPerClient = 8, 20
+	errs := make(chan error, clients)
+	var wg sync.WaitGroup
+	for client := 0; client < clients; client++ {
+		client := client
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			serverConn, clientConn := net.Pipe()
+			defer serverConn.Close()
+			defer clientConn.Close()
+			go s.handle(serverConn)
+			decoder := json.NewDecoder(clientConn)
+			for write := 0; write < writesPerClient; write++ {
+				id := client*writesPerClient + write
+				if _, err := fmt.Fprintf(clientConn, "INSERT INTO users (id, name) VALUES (%d, 'client')\n", id); err != nil {
+					errs <- err
+					return
+				}
+				var response Response
+				if err := decoder.Decode(&response); err != nil {
+					errs <- err
+					return
+				}
+				if !response.OK || response.Affected != 1 {
+					errs <- fmt.Errorf("insert response: %#v", response)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+	rows, err := table.Scan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != clients*writesPerClient {
+		t.Fatalf("expected %d rows, got %d", clients*writesPerClient, len(rows))
 	}
 }
