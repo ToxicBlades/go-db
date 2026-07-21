@@ -22,6 +22,8 @@ working storage, indexing, typed tables, SQL, durability, and a TCP interface.
 - A durable JSON table catalog beside the database, allowing SQL-created tables and schemas to be reopened after a restart (`kv/`, `cmd/go-db/`).
 - A line-oriented TCP server accepting plain SQL or JSON requests (`server/`).
 - An interactive SQL client (`cmd/go-db/`).
+- A Go API example is available under `examples/basic/`; it demonstrates
+  opening, using, and safely closing a typed table.
 
 ## Architecture
 

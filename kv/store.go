@@ -94,6 +94,24 @@ func (s *Store) Flush() error {
 	return s.wal.clear()
 }
 
+// CheckInvariants validates on-disk pages and the persisted index without
+// changing store state. It is intended for diagnostics and tests.
+func (s *Store) CheckInvariants() error {
+	if err := s.validatePages(); err != nil {
+		return err
+	}
+	for _, entry := range s.index.entries() {
+		value, found, err := s.Get(entry.Key)
+		if err != nil {
+			return err
+		}
+		if !found || !bytes.Equal(value, entry.Value) {
+			return fmt.Errorf("index mismatch for key %q", entry.Key)
+		}
+	}
+	return nil
+}
+
 // Open opens a Store backed by the file at path, creating it if needed.
 func Open(path string) (*Store, error) {
 	pager, err := storage.Open(path)

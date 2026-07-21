@@ -15,6 +15,16 @@ func BenchmarkSecondaryIndexFind(b *testing.B) {
 	}
 }
 
+func BenchmarkPointLookup(b *testing.B) {
+	table := benchmarkTable(b)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, _, err := table.Get("500"); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func BenchmarkFullScan(b *testing.B) {
 	table := benchmarkTable(b)
 	b.ResetTimer()

@@ -357,3 +357,13 @@ func TestFlushCheckpointsWithoutClosing(t *testing.T) {
 		t.Fatalf("value after flush = %q, %v", value, err)
 	}
 }
+
+func TestCheckInvariants(t *testing.T) {
+	s := openTestStore(t)
+	if err := s.Put([]byte("key"), []byte("value")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CheckInvariants(); err != nil {
+		t.Fatal(err)
+	}
+}
