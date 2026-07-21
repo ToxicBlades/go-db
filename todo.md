@@ -25,8 +25,9 @@
   detection remains a separate step.
 - [x] **Conflict detection** — detect write/write conflicts and define the
   behavior for concurrent updates or deletes of the same key.
-- [ ] **Commit ordering** — use a single durable commit sequence so snapshots
-  have a stable ordering across tables and after restart.
+- [x] **Commit ordering** — use one in-process commit sequence for every table
+  batch in a successful commit. Persisting and restoring that sequence across
+  restart remains future work.
 - [ ] **MVCC-aware compaction** — retain versions needed by active snapshots,
   reclaim versions older than the oldest active snapshot, and preserve
   tombstones until they are safe to remove.

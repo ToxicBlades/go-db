@@ -813,11 +813,13 @@ type transactionWrite struct {
 // rollback image are ready for the pending-write layer that follows.
 type transaction struct {
 	id     uint64
+	commit uint64
 	status transactionStatus
 	tables []transactionTableState
 }
 
 var nextTransactionID uint64
+var nextCommitSequence uint64
 
 type Executor struct {
 	Tables map[string]*kv.Table
@@ -1087,12 +1089,13 @@ func (e *Executor) commit() (Result, error) {
 			}
 		}
 	}
+	e.tx.commit = atomic.AddUint64(&nextCommitSequence, 1)
 	for _, state := range e.tx.tables {
 		writes := make(map[string]kv.TransactionRow, len(state.writes))
 		for key, write := range state.writes {
 			writes[key] = kv.TransactionRow{Row: write.row, Deleted: write.deleted}
 		}
-		if err := state.t.ApplyRowsBatch(e.tx.id, writes); err != nil {
+		if err := state.t.ApplyRowsBatch(e.tx.commit, writes); err != nil {
 			return Result{}, err
 		}
 	}
