@@ -181,18 +181,31 @@ func sqlCommand(args []string) {
 	fmt.Printf("connected to mydb at %s (type SQL or exit)\n", *addr)
 	scanner := bufio.NewScanner(os.Stdin)
 	reader := bufio.NewReader(conn)
+	var queryLines []string
 	for {
-		fmt.Print("sql> ")
+		if len(queryLines) == 0 {
+			fmt.Print("sql> ")
+		} else {
+			fmt.Print("...> ")
+		}
 		if !scanner.Scan() {
 			break
 		}
-		query := strings.TrimSpace(scanner.Text())
-		if query == "" {
+		line := strings.TrimSpace(scanner.Text())
+		if len(queryLines) == 0 && line == "" {
 			continue
 		}
-		if strings.EqualFold(query, "exit") || strings.EqualFold(query, "quit") {
+		if len(queryLines) == 0 && (strings.EqualFold(line, "exit") || strings.EqualFold(line, "quit")) {
 			break
 		}
+		if line != "" {
+			queryLines = append(queryLines, line)
+		}
+		query := strings.TrimSpace(strings.Join(queryLines, " "))
+		if !strings.HasSuffix(query, ";") {
+			continue
+		}
+		queryLines = nil
 		if _, err := fmt.Fprintln(conn, query); err != nil {
 			fmt.Fprintf(os.Stderr, "error sending query: %v\n", err)
 			break
