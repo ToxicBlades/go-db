@@ -76,8 +76,15 @@ go build ./...
 # Run the tests
 go test ./...
 
-# Play with it interactively
-go run ./cmd/mydb mydb.db
+# Start the SQL server; edit seed.sql to change the initial rows
+make start
+
+# In another terminal, run SQL interactively
+make sql
+
+# Or run it directly
+go run ./cmd/mydb server --db mydb.db --addr :5433 --seed seed.sql
+go run ./cmd/mydb sql --addr :5433
 > put name alice
 OK
 > get name

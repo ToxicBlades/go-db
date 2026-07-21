@@ -171,31 +171,31 @@ func (t *Table) decode(data []byte) (Row, error) {
 		switch c.Type {
 		case IntType:
 			if p+8 > len(data) {
-				return nil, fmt.Errorf("invalid row data")
+				return nil, fmt.Errorf("column %q (int): need 8 bytes at offset %d, row has %d bytes", c.Name, p, len(data))
 			}
 			r[c.Name] = int(int64(binary.LittleEndian.Uint64(data[p : p+8])))
 			p += 8
 		case StringType:
 			if p+4 > len(data) {
-				return nil, fmt.Errorf("invalid row data")
+				return nil, fmt.Errorf("column %q (string): missing 4-byte length at offset %d, row has %d bytes", c.Name, p, len(data))
 			}
 			n := int(binary.LittleEndian.Uint32(data[p : p+4]))
 			p += 4
 			if n < 0 || p+n > len(data) {
-				return nil, fmt.Errorf("invalid row data")
+				return nil, fmt.Errorf("column %q (string): length %d exceeds row data at offset %d (row has %d bytes)", c.Name, n, p, len(data))
 			}
 			r[c.Name] = string(data[p : p+n])
 			p += n
 		case BoolType:
 			if p >= len(data) || data[p] > 1 {
-				return nil, fmt.Errorf("invalid row data")
+				return nil, fmt.Errorf("column %q (bool): expected one byte with value 0 or 1 at offset %d (row has %d bytes)", c.Name, p, len(data))
 			}
 			r[c.Name] = data[p] == 1
 			p++
 		}
 	}
 	if p != len(data) {
-		return nil, fmt.Errorf("trailing row data")
+		return nil, fmt.Errorf("trailing row data: schema consumed %d of %d bytes", p, len(data))
 	}
 	return r, nil
 }

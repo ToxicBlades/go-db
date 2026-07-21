@@ -17,18 +17,31 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
+	"flag"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 
 	"mydb/kv"
+	"mydb/server"
+	"mydb/sql"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "server" {
+		serverCommand(os.Args[2:])
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "sql" {
+		sqlCommand(os.Args[2:])
+		return
+	}
 	if len(os.Args) < 2 {
-		fmt.Println("usage: mydb <path-to-db-file>")
+		fmt.Println("usage: mydb <path-to-db-file> | mydb server [options] | mydb sql [options]")
 		os.Exit(1)
 	}
 
@@ -116,4 +129,127 @@ func main() {
 			fmt.Printf("unknown command: %s\n", cmd)
 		}
 	}
+}
+
+func serverCommand(args []string) {
+	flags := flag.NewFlagSet("server", flag.ExitOnError)
+	dbPath := flags.String("db", "mydb.db", "database file")
+	addr := flags.String("addr", ":5433", "TCP address to listen on")
+	seedPath := flags.String("seed", "seed.sql", "SQL file to run before starting")
+	flags.Parse(args)
+	store, err := kv.Open(*dbPath)
+	if err != nil {
+		fatal("opening store", err)
+	}
+	table, err := kv.NewTable(store, kv.Schema{Columns: []kv.Column{{Name: "id", Type: kv.IntType}, {Name: "name", Type: kv.StringType}, {Name: "active", Type: kv.BoolType}}})
+	if err != nil {
+		_ = store.Close()
+		fatal("creating users table", err)
+	}
+	executor := sql.NewExecutor(map[string]*kv.Table{"users": table})
+	if err := runSeed(executor, *seedPath); err != nil {
+		_ = store.Close()
+		fatal("running seed file", err)
+	}
+	s, err := server.New(executor)
+	if err != nil {
+		_ = store.Close()
+		fatal("creating server", err)
+	}
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	go func() { <-signals; _ = s.Close() }()
+	fmt.Printf("mydb server listening on %s (database: %s)\n", *addr, *dbPath)
+	if err := s.ListenAndServe(*addr); err != nil && err != net.ErrClosed {
+		_ = store.Close()
+		fatal("server", err)
+	}
+	_ = store.Close()
+}
+
+func sqlCommand(args []string) {
+	flags := flag.NewFlagSet("sql", flag.ExitOnError)
+	addr := flags.String("addr", ":5433", "SQL server address")
+	flags.Parse(args)
+
+	conn, err := net.Dial("tcp", *addr)
+	if err != nil {
+		fatal("connecting to server", err)
+	}
+	defer conn.Close()
+
+	fmt.Printf("connected to mydb at %s (type SQL or exit)\n", *addr)
+	scanner := bufio.NewScanner(os.Stdin)
+	reader := bufio.NewReader(conn)
+	for {
+		fmt.Print("sql> ")
+		if !scanner.Scan() {
+			break
+		}
+		query := strings.TrimSpace(scanner.Text())
+		if query == "" {
+			continue
+		}
+		if strings.EqualFold(query, "exit") || strings.EqualFold(query, "quit") {
+			break
+		}
+		if _, err := fmt.Fprintln(conn, query); err != nil {
+			fmt.Fprintf(os.Stderr, "error sending query: %v\n", err)
+			break
+		}
+		var response server.Response
+		if err := json.NewDecoder(reader).Decode(&response); err != nil {
+			fmt.Fprintf(os.Stderr, "error reading response: %v\n", err)
+			break
+		}
+		if !response.OK {
+			fmt.Printf("error: %s\n", response.Error)
+			continue
+		}
+		if len(response.Rows) > 0 {
+			for _, column := range response.Columns {
+				fmt.Printf("%s\t", column)
+			}
+			fmt.Println()
+			for _, row := range response.Rows {
+				for _, column := range response.Columns {
+					fmt.Printf("%v\t", row[column])
+				}
+				fmt.Println()
+			}
+		} else {
+			fmt.Printf("OK (%d rows affected)\n", response.Affected)
+		}
+	}
+}
+
+func runSeed(executor *sql.Executor, path string) error {
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var lines []string
+	for _, line := range strings.Split(string(b), "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "--") {
+			lines = append(lines, line)
+		}
+	}
+	for i, statement := range strings.Split(strings.Join(lines, "\n"), ";") {
+		statement = strings.TrimSpace(statement)
+		if statement == "" {
+			continue
+		}
+		if _, err := executor.Execute(statement); err != nil {
+			return fmt.Errorf("statement %d: %w", i+1, err)
+		}
+	}
+	return nil
+}
+
+func fatal(action string, err error) {
+	fmt.Fprintf(os.Stderr, "error %s: %v\n", action, err)
+	os.Exit(1)
 }

@@ -322,7 +322,7 @@ func (e *Executor) selectRows(q Select) (Result, error) {
 	}
 	rows, err := t.Scan()
 	if err != nil {
-		return Result{}, err
+		return Result{}, fmt.Errorf("reading table %q: %w (database rows may have been created with a different schema; use a new database file or restore the matching schema)", q.Table, err)
 	}
 	schema := t.Schema()
 	var cols []string
