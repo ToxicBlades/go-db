@@ -108,6 +108,9 @@ func (p *Pager) writePageDisk(page *Page) error {
 // Flush writes all dirty cached pages to disk.
 func (p *Pager) Flush() error { return p.pool.Flush() }
 
+// Sync forces flushed page contents to stable storage.
+func (p *Pager) Sync() error { return p.file.Sync() }
+
 // NumPages returns how many pages currently exist in the file.
 func (p *Pager) NumPages() uint32 {
 	return p.numPages

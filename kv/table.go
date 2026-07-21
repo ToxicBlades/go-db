@@ -86,6 +86,29 @@ func (t *Table) Get(key string) (Row, bool, error) {
 
 func (t *Table) Delete(key string) error { return t.store.Delete([]byte(key)) }
 
+// Scan returns every currently live row. It is intentionally a full scan;
+// callers that need efficient point lookups should use Get.
+func (t *Table) Scan() ([]Row, error) {
+	var rows []Row
+	if t.store.index.root == nil {
+		return rows, nil
+	}
+	leaf := t.store.index.root
+	for !leaf.leaf {
+		leaf = leaf.children[0]
+	}
+	for ; leaf != nil; leaf = leaf.next {
+		for _, value := range leaf.values {
+			row, err := t.decode(value)
+			if err != nil {
+				return nil, err
+			}
+			rows = append(rows, row)
+		}
+	}
+	return rows, nil
+}
+
 func (s Schema) validate() error {
 	seen := map[string]bool{}
 	for _, c := range s.Columns {

@@ -7,7 +7,7 @@ able to explain) how real databases work under the hood — pages, buffer
 pools, B-trees, write-ahead logging — by building a small but *real*
 version of each piece.
 
-## Status: Milestone 4 — typed rows and schemas
+## Status: Milestone 5 — tiny SQL layer
 
 What's implemented so far:
 
@@ -22,6 +22,8 @@ What's implemented so far:
   keys against a real file on disk.
 - **Rows and schemas** (`kv/table.go`): typed `int`, `string`, and `bool`
   columns with a `Table` abstraction over the store.
+- **Tiny SQL layer** (`sql/`): hand-written lexer/parser and naive executor
+  for `SELECT`, `INSERT`, and equality `WHERE` queries.
 
 ### On-disk format
 
@@ -92,7 +94,7 @@ OK
       lookups; implement node splits on insert and merges on delete
 - [x] **4. Rows & schema** — typed columns (int, string, bool), a
       `Table` abstraction instead of raw key/value
-- [ ] **5. Tiny SQL layer** — hand-written lexer/parser for a subset of
+- [x] **5. Tiny SQL layer** — hand-written lexer/parser for a subset of
       SQL (`SELECT`, `INSERT`, `WHERE`), plus a naive query executor
 - [ ] **6. Write-ahead log** — durability and crash recovery: log
       operations before applying them, replay on restart

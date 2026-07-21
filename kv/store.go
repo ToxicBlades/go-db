@@ -29,6 +29,7 @@ type Store struct {
 	firstPage uint32
 	hasPages  bool
 	index     btree
+	wal       *wal
 }
 
 // Open opens a Store backed by the file at path, creating it if needed.
@@ -38,7 +39,12 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 
-	s := &Store{pager: pager}
+	w, err := openWAL(path)
+	if err != nil { pager.Close(); return nil, err }
+	s := &Store{pager: pager, wal: w}
+	if err := w.replay(func(op byte, key, value []byte) error {
+		return s.append(key, value, map[byte]byte{walPut: flagLive, walDelete: flagTombstone}[op])
+	}); err != nil { w.close(); pager.Close(); return nil, fmt.Errorf("WAL recovery: %w", err) }
 	if pager.NumPages() > 0 {
 		s.firstPage = 0
 		s.hasPages = true
@@ -52,6 +58,10 @@ func Open(path string) (*Store, error) {
 
 // Close flushes and closes the underlying file.
 func (s *Store) Close() error {
+	if err := s.pager.Flush(); err != nil { return err }
+	if err := s.pager.Sync(); err != nil { return err }
+	if err := s.wal.clear(); err != nil { return err }
+	if err := s.wal.close(); err != nil { return err }
 	return s.pager.Close()
 }
 
@@ -120,6 +130,7 @@ func (s *Store) Get(key []byte) (value []byte, found bool, err error) {
 
 // Put writes (or overwrites) the value for key.
 func (s *Store) Put(key, value []byte) error {
+	if err := s.wal.append(walPut, key, value); err != nil { return err }
 	return s.append(key, value, flagLive)
 }
 
@@ -127,6 +138,7 @@ func (s *Store) Put(key, value []byte) error {
 // The old record's bytes stay on disk until a future compaction pass
 // reclaims them - that's a deliberate simplification for milestone 1.
 func (s *Store) Delete(key []byte) error {
+	if err := s.wal.append(walDelete, key, nil); err != nil { return err }
 	if err := s.append(key, nil, flagTombstone); err != nil {
 		return err
 	}
