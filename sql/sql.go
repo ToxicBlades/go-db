@@ -1246,6 +1246,12 @@ func (e *Executor) explain(s Statement) (Result, error) {
 	case Select:
 		filter := "none"
 		scan := "Seq Scan"
+		estimate := "rows=?"
+		if t, err := e.table(q.Table); err == nil {
+			if rows, scanErr := e.rows(t); scanErr == nil {
+				estimate = fmt.Sprintf("rows=%d", len(rows))
+			}
+		}
 		if q.Where != nil {
 			filter = "apply WHERE predicate"
 			if t, err := e.table(q.Table); err == nil && isIndexedEquality(t, q.Where) {
@@ -1253,7 +1259,7 @@ func (e *Executor) explain(s Statement) (Result, error) {
 				filter = fmt.Sprintf("index condition: %s = %v", q.Where.Column, q.Where.Value)
 			}
 		}
-		plan = fmt.Sprintf("%s on %s; filter: %s; projection: %s", scan, q.Table, filter, strings.Join(q.Columns, ", "))
+		plan = fmt.Sprintf("%s on %s; %s; filter: %s; projection: %s", scan, q.Table, estimate, filter, strings.Join(q.Columns, ", "))
 	case Insert:
 		plan = fmt.Sprintf("Insert into %s; columns: %s", q.Table, strings.Join(q.Columns, ", "))
 	case Update:

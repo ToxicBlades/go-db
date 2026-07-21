@@ -40,7 +40,8 @@ EXPLAIN SELECT * FROM users WHERE active = true;
 execute the wrapped statement.
 
 Simple equality filters on indexed non-key columns use an index scan; other
-predicates use a sequential scan. `EXPLAIN` reports the selected scan type.
+predicates use a sequential scan. `EXPLAIN` reports the selected scan type and
+current row-count estimate.
 
 Use `EXPLAIN TABLE` to inspect a table's columns and constraints:
 

@@ -46,9 +46,9 @@ indexes are rebuilt in memory from durable table rows on restart.
   suitable equality key exists; include plan choices in `EXPLAIN`.
 - [x] Use secondary indexes for simple equality predicates in SQL and show the
   selected index scan in `EXPLAIN`.
-- [ ] Add cost estimates/scan strategy selection and avoid sorting or grouping
+- [x] Add cost estimates/scan strategy selection and avoid sorting or grouping
   more rows than necessary.
-- [ ] Add tests for duplicate constraints, foreign-key enforcement, NULLs,
+- [x] Add tests for duplicate constraints, foreign-key enforcement, NULLs,
   aggregates over empty input, ordering ties, pagination boundaries, and
   atomic multi-statement failures.
 
@@ -57,10 +57,10 @@ indexes are rebuilt in memory from durable table rows on restart.
 - [x] Put transaction state and table/catalog changes behind explicit
   synchronization. Add concurrent reader/writer and concurrent commit tests
   under `go test -race`.
-- [ ] Decide and document the isolation/locking model, especially write-write
+- [x] Decide and document the isolation/locking model, especially write-write
   conflicts, phantoms, DDL during transactions, and whether a transaction can
   span clients or only one connection.
-- [ ] Ensure all transaction paths release snapshots and roll back cleanly on
+- [x] Ensure all transaction paths release snapshots and roll back cleanly on
   connection errors, commit failures, and process shutdown.
 
 ### Storage and operations
