@@ -58,3 +58,28 @@ func TestSQLSemicolonAndListTables(t *testing.T) {
 		t.Fatal("expected trailing statement to be rejected")
 	}
 }
+
+func TestSQLAutoIncrementID(t *testing.T) {
+	s, err := kv.Open(t.TempDir() + "/db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	e := NewExecutor(map[string]*kv.Table{})
+	if _, err := e.Execute("CREATE TABLE users (name STRING)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Execute("INSERT INTO users (name) VALUES ('Ada')"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Execute("INSERT INTO users (name) VALUES ('Bob')"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := e.Execute("SELECT id, name FROM users")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Rows) != 2 || r.Rows[0]["id"] != 1 || r.Rows[1]["id"] != 2 {
+		t.Fatalf("unexpected auto-generated IDs: %#v", r.Rows)
+	}
+}

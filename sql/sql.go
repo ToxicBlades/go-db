@@ -603,7 +603,20 @@ func (e *Executor) create(q CreateTable) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	t, err := kv.NewTable(s, kv.Schema{Columns: q.Columns})
+	// Every SQL table has a stable first column for the key/value store.  Make
+	// it implicit when the user did not declare one, so INSERTs can omit it.
+	columns := q.Columns
+	hasID := false
+	for _, c := range columns {
+		if strings.EqualFold(c.Name, "id") {
+			hasID = true
+			break
+		}
+	}
+	if !hasID {
+		columns = append([]kv.Column{{Name: "id", Type: kv.IntType}}, columns...)
+	}
+	t, err := kv.NewTable(s, kv.Schema{Columns: columns})
 	if err != nil {
 		s.Close()
 		return Result{}, err
@@ -644,7 +657,24 @@ func (e *Executor) insert(q Insert) (Result, error) {
 	}
 	key, ok := r[s.Columns[0].Name]
 	if !ok {
-		return Result{}, fmt.Errorf("insert must include key column %q", s.Columns[0].Name)
+		// SQL-created tables use an integer id as their first column. Deriving
+		// the next value from live rows also makes this work after reopening a
+		// database without maintaining a separate counter.
+		if s.Columns[0].Type != kv.IntType {
+			return Result{}, fmt.Errorf("insert must include key column %q", s.Columns[0].Name)
+		}
+		rows, scanErr := t.Scan()
+		if scanErr != nil {
+			return Result{}, scanErr
+		}
+		next := 1
+		for _, row := range rows {
+			if id, ok := row[s.Columns[0].Name].(int); ok && id >= next {
+				next = id + 1
+			}
+		}
+		key = next
+		r[s.Columns[0].Name] = next
 	}
 	if err = t.Insert(fmt.Sprint(key), r); err != nil {
 		return Result{}, err

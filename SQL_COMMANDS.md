@@ -77,6 +77,10 @@ VALUES (2, 'Bob', false);
 Creates a table with typed columns. Supported types are `INT`, `STRING` (or
 `TEXT`), and `BOOL` (or `BOOLEAN`). The first column is used as the row key.
 
+If the statement does not declare an `id` column, an `id INT` column is added
+automatically as the first column. When inserting into such a table, omit the
+`id` column to have the executor assign the next integer ID.
+
 ```sql
 CREATE TABLE users (id INT, name STRING, active BOOL);
 ```
