@@ -244,8 +244,8 @@ contain letters, digits, and underscores.
 Tables may be created with `CREATE TABLE`, or created by the Go application
 when the server starts. Table names, schemas, constraints, and backing paths
 are stored in a catalog sidecar next to the database and are reopened when the
-server restarts. In the default setup, the available table is `users` with the
-schema `users(id INT, name STRING, active BOOL)`.
+server restarts. The server does not create tables implicitly; create `users`
+in SQL (or provide it through a seed file) when that table is needed.
 
 Backups include the database, WAL, index, and catalog sidecars. The source
 database must be closed before running `go-db backup`; backup and restore

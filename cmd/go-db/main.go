@@ -76,36 +76,18 @@ func serverCommand(args []string) {
 	}
 	tables := make(map[string]*kv.Table)
 	for _, entry := range catalog.Entries() {
+		var table *kv.Table
 		if entry.Path == *dbPath {
-			continue
+			table, err = kv.NewTable(store, entry.Schema)
+		} else {
+			table, err = kv.OpenTable(entry.Path, entry.Schema)
 		}
-		table, openErr := kv.OpenTable(entry.Path, entry.Schema)
+		openErr := err
 		if openErr != nil {
 			_ = store.Close()
 			fatal("opening table "+entry.Name, openErr)
 		}
 		tables[entry.Name] = table
-	}
-	usersSchema := kv.Schema{Columns: []kv.Column{{Name: "id", Type: kv.IntType}, {Name: "name", Type: kv.StringType}, {Name: "active", Type: kv.BoolType}}}
-	usersEntry, hasUsers := findCatalogEntry(catalog, "users")
-	if hasUsers {
-		usersSchema = usersEntry.Schema
-	}
-	if hasUsers && usersEntry.Path != *dbPath {
-		_ = store.Close()
-		fatal("opening users table", fmt.Errorf("catalog users path is %q, want %q", usersEntry.Path, *dbPath))
-	}
-	users, err := kv.NewTable(store, usersSchema)
-	if err != nil {
-		_ = store.Close()
-		fatal("creating users table", err)
-	}
-	tables["users"] = users
-	if !hasUsers {
-		if err := catalog.Set(kv.CatalogEntry{Name: "users", Path: *dbPath, Schema: usersSchema}); err != nil {
-			_ = users.Close()
-			fatal("registering users table", err)
-		}
 	}
 	executor := sql.NewExecutorWithCatalog(tables, catalog)
 	if err := runSeed(executor, *seedPath); err != nil {
