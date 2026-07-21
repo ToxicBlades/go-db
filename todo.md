@@ -31,7 +31,7 @@
 - [x] **MVCC-aware compaction** — track snapshot lifetimes and reject unsafe
   compaction while snapshots are active. Retaining versions older than the
   oldest active snapshot is future garbage-collection work.
-- [ ] **Lifecycle cleanup** — release transaction snapshots on commit,
+- [x] **Lifecycle cleanup** — release transaction snapshots on commit,
   rollback, client disconnect, and server errors.
 - [ ] **Tests** — add coverage for repeatable reads, read-your-writes,
   invisible uncommitted writes, rollback, restart recovery, conflicts,

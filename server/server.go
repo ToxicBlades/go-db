@@ -92,6 +92,13 @@ func (s *Server) handle(conn net.Conn) {
 	// Keep transaction state scoped to this client connection while sharing the
 	// server's table registry and underlying tables.
 	executor := sql.NewExecutor(s.Executor.Tables)
+	defer func() {
+		if executor.InTransaction() {
+			s.mu.Lock()
+			_, _ = executor.Execute("ROLLBACK")
+			s.mu.Unlock()
+		}
+	}()
 	sc := bufio.NewScanner(conn)
 	if s.Username != "" {
 		if !sc.Scan() {
