@@ -14,16 +14,16 @@ The implementation is well covered for the main happy paths, persistence,
 transaction snapshots/conflicts, parser fuzzing, WAL fuzzing, and the basic
 network protocol. It is still primarily a single-process educational engine:
 the server supplies a hard-coded `users` table, while tables and secondary
-indexes are not reconstructed from durable catalog metadata on restart.
+indexes are rebuilt in memory from durable table rows on restart.
 
 ## Suggested work
 
 ### Highest value
 
-- [ ] Add a durable system catalog for tables, schemas, column constraints,
+- [x] Add a durable system catalog for tables, schemas, column constraints,
   and table names. Reopen should restore `CREATE TABLE`/`ALTER TABLE` state
   instead of requiring the server to recreate `users` in code.
-- [ ] Persist or rebuild secondary indexes on table open. Define an index
+- [x] Persist or rebuild secondary indexes on table open. Define an index
   version/metadata format and make index creation, updates, deletes, and schema
   changes crash-safe.
 - [ ] Add end-to-end restart tests: create/alter/drop tables, insert/update/

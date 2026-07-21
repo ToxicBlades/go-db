@@ -35,6 +35,34 @@ func TestSecondaryIndexFindAndUpdate(t *testing.T) {
 	}
 }
 
+func TestSecondaryIndexRebuildsOnReopen(t *testing.T) {
+	path := t.TempDir() + "/table.db"
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl, err := NewTable(s, Schema{Columns: []Column{{"id", IntType}, {"name", StringType}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tbl.Insert("1", Row{"id": 1, "name": "Ada"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tbl.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := OpenTable(path, Schema{Columns: []Column{{"id", IntType}, {"name", StringType}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	rows, err := reopened.Find("name", "Ada")
+	if err != nil || len(rows) != 1 || rows[0]["id"] != 1 {
+		t.Fatalf("reopened index: %#v, %v", rows, err)
+	}
+}
+
 func TestTableTypedRows(t *testing.T) {
 	path := t.TempDir() + "/table.db"
 	s, err := Open(path)
