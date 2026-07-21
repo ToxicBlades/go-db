@@ -1,0 +1,25 @@
+---
+description: Keep Markdown documentation synchronized with architecture and SQL changes
+alwaysApply: true
+---
+
+# Documentation synchronization
+
+This is a workspace-only rule. Whenever a change in this repository modifies
+the system architecture, component responsibilities, data flow, persistence
+behavior, public interfaces, SQL syntax, SQL semantics, supported commands,
+or SQL examples:
+
+- Update the relevant Markdown files in the same change. At minimum, check
+  `README.md` for architecture and public behavior changes and
+  `SQL_COMMANDS.md` for SQL command or syntax changes.
+- Keep diagrams, project-layout descriptions, command examples, and SQL
+  examples consistent with the implementation.
+- If no existing Markdown file is the right location, create a focused one
+  under the repository rather than leaving the behavior undocumented.
+- Do not claim the work is complete until the documentation diff has been
+  reviewed alongside the code diff.
+
+For changes unrelated to architecture or SQL behavior, do not edit Markdown
+just to satisfy this rule. Documentation updates must describe behavior that
+actually exists in the code.
