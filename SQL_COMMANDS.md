@@ -90,7 +90,16 @@ ORDER BY active;
 ```
 
 `SUM` and `AVG` require numeric columns. `COUNT(*)` counts rows; other
-aggregates ignore NULL values. Joins are not supported.
+aggregates ignore NULL values. A naive nested-loop inner join is supported:
+
+```sql
+SELECT users.name, orders.total FROM users JOIN orders
+ON users.id = orders.user_id;
+```
+
+`INNER JOIN` is accepted too. Multiple semicolon-separated statements in one
+request execute as a transaction; row changes are rolled back if a statement
+fails.
 
 ### `INSERT`
 
@@ -115,7 +124,9 @@ VALUES (2, 'Bob', false);
 ### `CREATE TABLE`
 
 Creates a table with typed columns. Supported types are `INT`, `FLOAT` (also
-`REAL`/`DOUBLE`), `STRING` (or `TEXT`), and `BOOL` (or `BOOLEAN`). Columns may
+`REAL`/`DOUBLE`), `STRING` (or `TEXT`), `BOOL` (or `BOOLEAN`), `BYTES` (or
+`BLOB`), and `TIMESTAMP`. Timestamp values use RFC3339 strings such as
+`'2026-07-21T12:00:00Z'`. Columns may
 be followed by `NOT NULL`, `UNIQUE`, or `REFERENCES table(column)`. `NULL` is
 accepted as a value unless `NOT NULL` is declared; NULL values do not count as
 duplicates for `UNIQUE`.
