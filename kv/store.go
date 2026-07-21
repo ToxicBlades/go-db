@@ -28,6 +28,7 @@ type Store struct {
 	pager     *storage.Pager
 	firstPage uint32
 	hasPages  bool
+	index     btree
 }
 
 // Open opens a Store backed by the file at path, creating it if needed.
@@ -41,6 +42,10 @@ func Open(path string) (*Store, error) {
 	if pager.NumPages() > 0 {
 		s.firstPage = 0
 		s.hasPages = true
+		if err := s.rebuildIndex(); err != nil {
+			pager.Close()
+			return nil, err
+		}
 	}
 	return s, nil
 }
@@ -109,42 +114,8 @@ func writeRecord(page *storage.Page, key, value []byte, flag byte) error {
 // written more than once, the last write in scan order wins - that's
 // why we keep scanning to the end instead of stopping at the first match.
 func (s *Store) Get(key []byte) (value []byte, found bool, err error) {
-	if !s.hasPages {
-		return nil, false, nil
-	}
-
-	pageID := s.firstPage
-	for {
-		page, err := s.pager.ReadPage(pageID)
-		if err != nil {
-			return nil, false, err
-		}
-
-		offset := uint16(storage.HeaderSize)
-		for offset < page.FreeOffset() {
-			rec, err := readRecord(page.Data[:], offset)
-			if err != nil {
-				return nil, false, err
-			}
-			if string(rec.key) == string(key) {
-				if rec.flag == flagTombstone {
-					value, found = nil, false
-				} else {
-					value = append([]byte(nil), rec.value...)
-					found = true
-				}
-			}
-			offset += uint16(rec.size)
-		}
-
-		next := page.NextPageID()
-		if next == storage.NoPage {
-			break
-		}
-		pageID = next
-	}
-
-	return value, found, nil
+	value, found = s.index.get(key)
+	return append([]byte(nil), value...), found, nil
 }
 
 // Put writes (or overwrites) the value for key.
@@ -156,7 +127,11 @@ func (s *Store) Put(key, value []byte) error {
 // The old record's bytes stay on disk until a future compaction pass
 // reclaims them - that's a deliberate simplification for milestone 1.
 func (s *Store) Delete(key []byte) error {
-	return s.append(key, nil, flagTombstone)
+	if err := s.append(key, nil, flagTombstone); err != nil {
+		return err
+	}
+	s.index.delete(key)
+	return nil
 }
 
 // append writes a record to the last page in the chain, allocating a
@@ -180,10 +155,49 @@ func (s *Store) append(key, value []byte, flag byte) error {
 		if err := s.pager.WritePage(lastPage); err != nil {
 			return err
 		}
-		return s.pager.WritePage(newPage)
+		if err := s.pager.WritePage(newPage); err != nil {
+			return err
+		}
+		if flag == flagLive {
+			s.index.put(key, value)
+		} else {
+			s.index.delete(key)
+		}
+		return nil
 	}
 
-	return s.pager.WritePage(lastPage)
+	if err := s.pager.WritePage(lastPage); err != nil {
+		return err
+	}
+	if flag == flagLive {
+		s.index.put(key, value)
+	}
+	return nil
+}
+
+func (s *Store) rebuildIndex() error {
+	for id := s.firstPage; ; {
+		p, err := s.pager.ReadPage(id)
+		if err != nil {
+			return err
+		}
+		for off := uint16(storage.HeaderSize); off < p.FreeOffset(); {
+			r, err := readRecord(p.Data[:], off)
+			if err != nil {
+				return err
+			}
+			if r.flag == flagTombstone {
+				s.index.delete(r.key)
+			} else {
+				s.index.put(r.key, r.value)
+			}
+			off += uint16(r.size)
+		}
+		if p.NextPageID() == storage.NoPage {
+			return nil
+		}
+		id = p.NextPageID()
+	}
 }
 
 // lastPage returns the last page in the chain, allocating the very

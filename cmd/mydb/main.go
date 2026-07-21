@@ -19,7 +19,9 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"mydb/kv"
 )
@@ -36,6 +38,20 @@ func main() {
 		os.Exit(1)
 	}
 	defer store.Close()
+
+	// Ctrl-C normally terminates the process immediately, which would skip
+	// Store.Close and leave buffered pages unwritten. Handle it like `exit`.
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	go func() {
+		<-signals
+		if err := store.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "error closing store: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}()
 
 	fmt.Printf("mydb - connected to %s\n", os.Args[1])
 	fmt.Println("commands: put <key> <value> | get <key> | delete <key> | exit")

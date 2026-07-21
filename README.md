@@ -84,9 +84,9 @@ OK
 
 - [x] **1. Storage layer** — pages, disk I/O
 - [x] **1. Key-value store** — append-only records, page chaining
-- [ ] **2. Buffer pool** — cache hot pages in memory (LRU/clock eviction),
+- [x] **2. Buffer pool** — cache hot pages in memory (LRU/clock eviction),
       track dirty pages, only hit disk on eviction or explicit flush
-- [ ] **3. B+Tree index** — replace the linear scan with O(log n)
+- [x] **3. B+Tree index** — replace the linear scan with O(log n)
       lookups; implement node splits on insert and merges on delete
 - [ ] **4. Rows & schema** — typed columns (int, string, bool), a
       `Table` abstraction instead of raw key/value
