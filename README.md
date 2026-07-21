@@ -116,6 +116,6 @@ mydb/
 ## References this project is following
 
 - *Database Internals* by Alex Petrov
-- CMU's [Intro to Database Systems](https://www.youtube.com/@cmudatabasegroup) (free lecture series)
-- [BoltDB](https://github.com/etcd-io/bbolt) / [Badger](https://github.com/dgraph-io/badger) — real embedded Go databases, good for idiomatic reference
+- CMU's [Intro to Database Systems](https://www.youtube.com/@cmudatabasegroup)
+- [BoltDB](https://github.com/etcd-io/bbolt) / [Badger](https://github.com/dgraph-io/badger)
 - ["Let's Build a Simple Database"](https://cstack.github.io/db_tutorial/)

@@ -16,7 +16,7 @@ type Pager struct {
 	numPages uint32
 }
 
-// Open opens (or creates) the database file at path and returns a Pager
+// Opens (or creates) the database file at path and returns a Pager
 // ready to allocate, read, and write pages.
 func Open(path string) (*Pager, error) {
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
