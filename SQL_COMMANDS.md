@@ -73,8 +73,11 @@ VALUES (2, 'Bob', false);
 
 ### `CREATE TABLE`
 
-Creates a table with typed columns. Supported types are `INT`, `STRING` (or
-`TEXT`), and `BOOL` (or `BOOLEAN`). The first column is used as the row key.
+Creates a table with typed columns. Supported types are `INT`, `FLOAT` (also
+`REAL`/`DOUBLE`), `STRING` (or `TEXT`), and `BOOL` (or `BOOLEAN`). Columns may
+be followed by `NOT NULL`, `UNIQUE`, or `REFERENCES table(column)`. `NULL` is
+accepted as a value unless `NOT NULL` is declared; NULL values do not count as
+duplicates for `UNIQUE`.
 
 If the statement does not declare an `id` column, an `id INT` column is added
 automatically as the first column. When inserting into such a table, omit the
@@ -82,6 +85,9 @@ automatically as the first column. When inserting into such a table, omit the
 
 ```sql
 CREATE TABLE users (id INT, name STRING, active BOOL);
+
+CREATE TABLE orders (id INT, user_id INT NOT NULL REFERENCES users(id),
+                     total FLOAT, external_id STRING UNIQUE);
 ```
 
 ### `ALTER TABLE`

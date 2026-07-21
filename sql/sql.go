@@ -21,6 +21,7 @@ const (
 	Number
 	String
 	Boolean
+	Null
 	Comma
 	LParen
 	RParen
@@ -115,7 +116,7 @@ func Lex(input string) ([]Token, error) {
 			continue
 		}
 		start := i
-		for i < len(input) && (unicode.IsLetter(rune(input[i])) || unicode.IsDigit(rune(input[i])) || input[i] == '_') {
+		for i < len(input) && (unicode.IsLetter(rune(input[i])) || unicode.IsDigit(rune(input[i])) || input[i] == '_' || input[i] == '.') {
 			i++
 		}
 		if start == i {
@@ -130,7 +131,13 @@ func Lex(input string) ([]Token, error) {
 		if upper == "TRUE" || upper == "FALSE" {
 			typ = Boolean
 		}
+		if upper == "NULL" {
+			typ = Null
+		}
 		if _, err := strconv.Atoi(word); err == nil {
+			typ = Number
+		}
+		if _, err := strconv.ParseFloat(word, 64); err == nil {
 			typ = Number
 		}
 		out = append(out, Token{typ, word})
@@ -161,8 +168,9 @@ type ListTables struct{}
 func (ListTables) isStatement() {}
 
 type CreateTable struct {
-	Table   string
-	Columns []kv.Column
+	Table       string
+	Columns     []kv.Column
+	Constraints map[string]kv.ColumnConstraint
 }
 
 func (CreateTable) isStatement() {}
@@ -273,6 +281,7 @@ func (p *parser) createStmt() (Statement, error) {
 		return nil, e
 	}
 	var cs []kv.Column
+	constraints := map[string]kv.ColumnConstraint{}
 	for {
 		n := p.cur().Lexeme
 		p.take()
@@ -286,10 +295,40 @@ func (p *parser) createStmt() (Statement, error) {
 			ct = kv.StringType
 		case "BOOL", "BOOLEAN":
 			ct = kv.BoolType
+		case "FLOAT", "REAL", "DOUBLE":
+			ct = kv.FloatType
 		default:
 			return nil, fmt.Errorf("unknown type %q", typ)
 		}
-		cs = append(cs, kv.Column{Name: n, Type: ct})
+		c := kv.Column{Name: n, Type: ct}
+		var constraint kv.ColumnConstraint
+		for strings.EqualFold(p.cur().Lexeme, "NOT") || strings.EqualFold(p.cur().Lexeme, "UNIQUE") || strings.EqualFold(p.cur().Lexeme, "REFERENCES") {
+			word := strings.ToUpper(p.cur().Lexeme)
+			p.take()
+			switch word {
+			case "NOT":
+				if e := p.want("NULL"); e != nil {
+					return nil, e
+				}
+				constraint.NotNull = true
+			case "UNIQUE":
+				constraint.Unique = true
+			case "REFERENCES":
+				rt := p.cur().Lexeme
+				p.take()
+				if e := p.want("("); e != nil {
+					return nil, e
+				}
+				rc := p.cur().Lexeme
+				p.take()
+				if e := p.want(")"); e != nil {
+					return nil, e
+				}
+				constraint.References = &kv.Reference{Table: rt, Column: rc}
+			}
+		}
+		cs = append(cs, c)
+		constraints[n] = constraint
 		if p.cur().Type != Comma {
 			break
 		}
@@ -298,7 +337,7 @@ func (p *parser) createStmt() (Statement, error) {
 	if e := p.want(")"); e != nil {
 		return nil, e
 	}
-	return CreateTable{name, cs}, nil
+	return CreateTable{name, cs, constraints}, nil
 }
 func (p *parser) dropStmt() (Statement, error) {
 	p.take()
@@ -334,6 +373,8 @@ func (p *parser) alterStmt() (Statement, error) {
 			ct = kv.StringType
 		case "BOOL", "BOOLEAN":
 			ct = kv.BoolType
+		case "FLOAT", "REAL", "DOUBLE":
+			ct = kv.FloatType
 		default:
 			return nil, fmt.Errorf("unknown type %q", ty)
 		}
@@ -552,11 +593,16 @@ func (p *parser) insertStmt() (Statement, error) {
 func value(t Token) (any, error) {
 	switch t.Type {
 	case Number:
+		if strings.Contains(t.Lexeme, ".") {
+			return strconv.ParseFloat(t.Lexeme, 64)
+		}
 		return strconv.Atoi(t.Lexeme)
 	case String:
 		return t.Lexeme, nil
 	case Boolean:
 		return strings.EqualFold(t.Lexeme, "true"), nil
+	case Null:
+		return nil, nil
 	}
 	return nil, fmt.Errorf("expected value")
 }
@@ -603,6 +649,9 @@ func match(w *Condition, r kv.Row) bool {
 	}
 	if w.Logic == "OR" {
 		return match(w.Left, r) || match(w.Right, r)
+	}
+	if r[w.Column] == nil || w.Value == nil {
+		return false
 	}
 	cmp := compare(r[w.Column], w.Value)
 	switch w.Operator {
@@ -746,7 +795,7 @@ func (e *Executor) create(q CreateTable) (Result, error) {
 	if !hasID {
 		columns = append([]kv.Column{{Name: "id", Type: kv.IntType}}, columns...)
 	}
-	t, err := kv.NewTable(s, kv.Schema{Columns: columns})
+	t, err := kv.NewTable(s, kv.Schema{Columns: columns, Constraints: q.Constraints})
 	if err != nil {
 		s.Close()
 		return Result{}, err
@@ -806,11 +855,31 @@ func (e *Executor) insert(q Insert) (Result, error) {
 		key = next
 		r[s.Columns[0].Name] = next
 	}
+	for _, c := range s.Columns {
+		cc := s.Constraints[c.Name]
+		if cc.References != nil && r[c.Name] != nil {
+			ref, e := e.table(cc.References.Table)
+			if e != nil {
+				return Result{}, e
+			}
+			found := false
+			for _, rr := range refRows(ref) {
+				if rr[cc.References.Column] == r[c.Name] {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return Result{}, fmt.Errorf("foreign key constraint failed: %s", c.Name)
+			}
+		}
+	}
 	if err = t.Insert(fmt.Sprint(key), r); err != nil {
 		return Result{}, err
 	}
 	return Result{Affected: 1}, nil
 }
+func refRows(t *kv.Table) []kv.Row { r, _ := t.Scan(); return r }
 func (e *Executor) selectRows(q Select) (Result, error) {
 	t, err := e.table(q.Table)
 	if err != nil {

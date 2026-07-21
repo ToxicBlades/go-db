@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math"
 )
 
 // ColumnType is the type of a table column.
@@ -13,12 +14,14 @@ const (
 	IntType ColumnType = iota + 1
 	StringType
 	BoolType
+	FloatType
 )
 
 const (
 	TypeInt    = IntType
 	TypeString = StringType
 	TypeBool   = BoolType
+	TypeFloat  = FloatType
 )
 
 // Column describes one field in a Schema. Column order is the on-disk order.
@@ -27,8 +30,17 @@ type Column struct {
 	Type ColumnType
 }
 
+type Reference struct{ Table, Column string }
+type ColumnConstraint struct {
+	NotNull, Unique bool
+	References      *Reference
+}
+
 // Schema describes the columns a Table accepts.
-type Schema struct{ Columns []Column }
+type Schema struct {
+	Columns     []Column
+	Constraints map[string]ColumnConstraint
+}
 
 // Row is a named set of column values. Values must be int, string, or bool.
 type Row map[string]any
@@ -72,7 +84,28 @@ func (t *Table) Insert(key string, row Row) error {
 	if err != nil {
 		return err
 	}
+	if err := t.validateConstraints(key, row); err != nil {
+		return err
+	}
 	return t.store.Put([]byte(key), b)
+}
+
+func (t *Table) validateConstraints(key string, row Row) error {
+	rows, err := t.Scan()
+	if err != nil {
+		return err
+	}
+	for _, c := range t.schema.Columns {
+		if !t.schema.Constraints[c.Name].Unique || row[c.Name] == nil {
+			continue
+		}
+		for _, old := range rows {
+			if fmt.Sprint(old[t.schema.Columns[0].Name]) != key && old[c.Name] == row[c.Name] {
+				return fmt.Errorf("unique constraint failed: %s", c.Name)
+			}
+		}
+	}
+	return nil
 }
 
 func (t *Table) Get(key string) (Row, bool, error) {
@@ -173,6 +206,8 @@ func (t *Table) Alter(schema Schema) error {
 					nr[c.Name] = ""
 				case BoolType:
 					nr[c.Name] = false
+				case FloatType:
+					nr[c.Name] = float64(0)
 				}
 			}
 		}
@@ -190,7 +225,7 @@ func (s Schema) validate() error {
 		if c.Name == "" || seen[c.Name] {
 			return fmt.Errorf("invalid or duplicate column %q", c.Name)
 		}
-		if c.Type < IntType || c.Type > BoolType {
+		if c.Type < IntType || c.Type > FloatType {
 			return fmt.Errorf("invalid type for column %q", c.Name)
 		}
 		seen[c.Name] = true
@@ -203,10 +238,19 @@ func (t *Table) encode(row Row) ([]byte, error) {
 		return nil, fmt.Errorf("row has wrong number of columns")
 	}
 	var b bytes.Buffer
+	nullBytes := (len(t.schema.Columns) + 7) / 8
+	b.Write(make([]byte, nullBytes))
 	for _, c := range t.schema.Columns {
 		v, ok := row[c.Name]
 		if !ok {
 			return nil, fmt.Errorf("missing column %q", c.Name)
+		}
+		if v == nil {
+			if t.schema.Constraints[c.Name].NotNull {
+				return nil, fmt.Errorf("column %q may not be NULL", c.Name)
+			}
+			b.Bytes()[indexOf(t.schema.Columns, c)/8] |= 1 << uint(indexOf(t.schema.Columns, c)%8)
+			continue
 		}
 		switch c.Type {
 		case IntType:
@@ -225,14 +269,26 @@ func (t *Table) encode(row Row) ([]byte, error) {
 			}
 			b.WriteString(s)
 		case BoolType:
-			v, ok := v.(bool)
+			bv, ok := v.(bool)
 			if !ok {
 				return nil, fmt.Errorf("column %q expects bool", c.Name)
 			}
-			if v {
+			if bv {
 				b.WriteByte(1)
 			} else {
 				b.WriteByte(0)
+			}
+		case FloatType:
+			f, ok := v.(float64)
+			if !ok {
+				if i, ok2 := v.(int); ok2 {
+					f = float64(i)
+				} else {
+					return nil, fmt.Errorf("column %q expects float", c.Name)
+				}
+			}
+			if err := binary.Write(&b, binary.LittleEndian, f); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -241,8 +297,18 @@ func (t *Table) encode(row Row) ([]byte, error) {
 
 func (t *Table) decode(data []byte) (Row, error) {
 	r := Row{}
-	p := 0
+	nullBytes := (len(t.schema.Columns) + 7) / 8
+	if len(data) < nullBytes {
+		return nil, fmt.Errorf("row missing NULL bitmap")
+	}
+	nulls := data[:nullBytes]
+	p := nullBytes
 	for _, c := range t.schema.Columns {
+		i := indexOf(t.schema.Columns, c)
+		if nulls[i/8]&(1<<uint(i%8)) != 0 {
+			r[c.Name] = nil
+			continue
+		}
 		switch c.Type {
 		case IntType:
 			if p+8 > len(data) {
@@ -267,10 +333,27 @@ func (t *Table) decode(data []byte) (Row, error) {
 			}
 			r[c.Name] = data[p] == 1
 			p++
+		case FloatType:
+			if p+8 > len(data) {
+				return nil, fmt.Errorf("column %q (float): need 8 bytes", c.Name)
+			}
+			r[c.Name] = binary.LittleEndian.Uint64(data[p : p+8])
+			p += 8
+			// Convert the IEEE bits without importing math in the common path.
+			r[c.Name] = math.Float64frombits(r[c.Name].(uint64))
 		}
 	}
 	if p != len(data) {
 		return nil, fmt.Errorf("trailing row data: schema consumed %d of %d bytes", p, len(data))
 	}
 	return r, nil
+}
+
+func indexOf(cs []Column, want Column) int {
+	for i, c := range cs {
+		if c.Name == want.Name {
+			return i
+		}
+	}
+	return 0
 }

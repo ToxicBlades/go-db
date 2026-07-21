@@ -1,6 +1,4 @@
 ## SQL / query engine
-- **`AND`/`OR` in WHERE** — you only support single equality conditions right now; this is probably the highest-value next step since it's referenced explicitly as a limitation.
-- **Comparison operators** (`<`, `>`, `<=`, `>=`, `!=`) — currently only `=` is supported.
 - **`ORDER BY` / `LIMIT` / `OFFSET`**
 - **Aggregates**: `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, with `GROUP BY`.
 - **Joins** — even just a naive nested-loop inner join would be a big milestone given your single-table executor today.
@@ -18,8 +16,6 @@
 
 ## Types / schema
 - **More types**: `float`/`double`, `bytes`/`blob`, `timestamp`.
-- **NULL support** — often a bigger design decision than it looks (affects storage layout, comparisons, WAL).
-- **Constraints**: `NOT NULL`, `UNIQUE`, foreign keys.
 
 ## Server / client
 - **Prepared statements / parameterized queries** — avoids re-parsing and is safer than string-building SQL.
