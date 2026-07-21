@@ -72,9 +72,12 @@ snapshot can read the value visible at that point with `GetAt` or `ScanAt`.
 `Store.Compact` rewrites only live indexed records into a fresh page chain and
 replaces the database file, reclaiming overwritten and deleted data.
 
-The WAL is stored beside the database file. Writes are logged and synced before
-the corresponding page changes. On startup, complete WAL records are replayed;
-a clean close checkpoints the log.
+The WAL is stored beside the database file. Non-transactional writes are logged
+and synced before page changes. Transactional writes are recorded with a
+transaction ID and commit marker; recovery replays only committed batches and
+discards incomplete ones. A clean close checkpoints the log. Compaction is
+rejected while a snapshot is active, preventing removal of versions still
+needed by a reader.
 
 ## Run it
 

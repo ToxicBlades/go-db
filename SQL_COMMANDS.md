@@ -8,7 +8,8 @@ intentionally small and is handled by `sql/sql.go`.
 ### Explicit transactions
 
 `BEGIN` starts a transaction that remains active across requests. Changes are
-made durable by `COMMIT`; `ROLLBACK` restores the rows present at `BEGIN`:
+staged privately and made durable by `COMMIT`; `ROLLBACK` discards the staged
+writes:
 
 ```sql
 BEGIN;
@@ -19,9 +20,10 @@ ROLLBACK;
 Only one explicit transaction may be active per client connection. `COMMIT`
 and `ROLLBACK` outside a transaction return an error.
 
-The TCP server uses database-level locking for isolation. A client with an
-open explicit transaction holds the lock until `COMMIT`, `ROLLBACK`, or
-disconnect; other clients wait while that transaction is active.
+Transactions use snapshot reads and read their own writes. Requests from
+different clients can interleave. A commit that writes a key changed after
+`BEGIN` fails with a transaction conflict; the transaction remains open so it
+can be rolled back. Disconnecting a client rolls back its open transaction.
 
 ### `EXPLAIN`
 

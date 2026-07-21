@@ -2,6 +2,7 @@ package kv
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -274,6 +275,39 @@ func TestWALRecoversOperationBeforePageWrite(t *testing.T) {
 	value, found, err = s.Get([]byte("recovered"))
 	if err != nil || !found || string(value) != "value" {
 		t.Fatalf("reopened value = %q, found=%v, err=%v", value, found, err)
+	}
+}
+
+func TestWALDiscardsUncommittedTransaction(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.db")
+	w, err := openWAL(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.appendTransaction(77, []BatchOp{{Key: []byte("lost"), Value: []byte("value")}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.close(); err != nil {
+		t.Fatal(err)
+	}
+	// Remove only the commit marker, simulating a crash before transaction commit.
+	f, err := os.OpenFile(path+".wal", os.O_RDWR, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, _ := f.Stat()
+	if err := f.Truncate(info.Size() - int64(walHeader+8)); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, found, err := s.Get([]byte("lost")); err != nil || found {
+		t.Fatalf("uncommitted WAL found=%v err=%v", found, err)
 	}
 }
 
