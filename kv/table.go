@@ -109,6 +109,81 @@ func (t *Table) Scan() ([]Row, error) {
 	return rows, nil
 }
 
+// Update changes matching rows and returns the number changed.
+func (t *Table) Update(where func(Row) bool, set Row) (int, error) {
+	rows, err := t.Scan()
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, r := range rows {
+		if where != nil && !where(r) {
+			continue
+		}
+		for k, v := range set {
+			r[k] = v
+		}
+		key := fmt.Sprint(r[t.schema.Columns[0].Name])
+		if err = t.Insert(key, r); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
+func (t *Table) DeleteWhere(where func(Row) bool) (int, error) {
+	rows, err := t.Scan()
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, r := range rows {
+		if where != nil && !where(r) {
+			continue
+		}
+		if err = t.Delete(fmt.Sprint(r[t.schema.Columns[0].Name])); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
+// Alter changes the schema and rewrites live rows using zero values for new columns.
+func (t *Table) Alter(schema Schema) error {
+	if err := schema.validate(); err != nil {
+		return err
+	}
+	old := t.schema
+	rows, err := t.Scan()
+	if err != nil {
+		return err
+	}
+	for _, r := range rows {
+		nr := Row{}
+		for _, c := range schema.Columns {
+			if v, ok := r[c.Name]; ok {
+				nr[c.Name] = v
+			} else {
+				switch c.Type {
+				case IntType:
+					nr[c.Name] = 0
+				case StringType:
+					nr[c.Name] = ""
+				case BoolType:
+					nr[c.Name] = false
+				}
+			}
+		}
+		if err = t.Insert(fmt.Sprint(r[old.Columns[0].Name]), nr); err != nil {
+			return err
+		}
+	}
+	t.schema = schema
+	return nil
+}
+
 func (s Schema) validate() error {
 	seen := map[string]bool{}
 	for _, c := range s.Columns {

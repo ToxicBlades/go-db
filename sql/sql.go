@@ -3,6 +3,7 @@ package sql
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -98,7 +99,7 @@ func Lex(input string) ([]Token, error) {
 		word := input[start:i]
 		upper := strings.ToUpper(word)
 		typ := Identifier
-		if upper == "SELECT" || upper == "FROM" || upper == "WHERE" || upper == "INSERT" || upper == "INTO" || upper == "VALUES" || upper == "SHOW" || upper == "TABLES" || upper == "LIST" {
+		if upper == "SELECT" || upper == "FROM" || upper == "WHERE" || upper == "INSERT" || upper == "INTO" || upper == "VALUES" || upper == "SHOW" || upper == "TABLES" || upper == "LIST" || upper == "CREATE" || upper == "TABLE" || upper == "ALTER" || upper == "ADD" || upper == "COLUMN" || upper == "DROP" || upper == "RENAME" || upper == "TO" || upper == "UPDATE" || upper == "SET" || upper == "DELETE" {
 			typ = Keyword
 		}
 		if upper == "TRUE" || upper == "FALSE" {
@@ -134,6 +135,39 @@ type ListTables struct{}
 
 func (ListTables) isStatement() {}
 
+type CreateTable struct {
+	Table   string
+	Columns []kv.Column
+}
+
+func (CreateTable) isStatement() {}
+
+type DropTable struct{ Table string }
+
+func (DropTable) isStatement() {}
+
+type AlterTable struct {
+	Table, Action, Name, NewName string
+	Column                       kv.Column
+}
+
+func (AlterTable) isStatement() {}
+
+type Update struct {
+	Table string
+	Set   map[string]any
+	Where *Condition
+}
+
+func (Update) isStatement() {}
+
+type Delete struct {
+	Table string
+	Where *Condition
+}
+
+func (Delete) isStatement() {}
+
 type Condition struct {
 	Column string
 	Value  any
@@ -157,6 +191,16 @@ func Parse(input string) (Statement, error) {
 		s, err = p.selectStmt()
 	case strings.EqualFold(p.cur().Lexeme, "INSERT"):
 		s, err = p.insertStmt()
+	case strings.EqualFold(p.cur().Lexeme, "CREATE"):
+		s, err = p.createStmt()
+	case strings.EqualFold(p.cur().Lexeme, "DROP"):
+		s, err = p.dropStmt()
+	case strings.EqualFold(p.cur().Lexeme, "ALTER"):
+		s, err = p.alterStmt()
+	case strings.EqualFold(p.cur().Lexeme, "UPDATE"):
+		s, err = p.updateStmt()
+	case strings.EqualFold(p.cur().Lexeme, "DELETE"):
+		s, err = p.deleteStmt()
 	case strings.EqualFold(p.cur().Lexeme, "SHOW"):
 		err = p.want("SHOW")
 		if err == nil {
@@ -174,7 +218,7 @@ func Parse(input string) (Statement, error) {
 			s = ListTables{}
 		}
 	default:
-		err = fmt.Errorf("expected SELECT, INSERT, SHOW TABLES, or LIST TABLES")
+		err = fmt.Errorf("expected SELECT, INSERT, CREATE, ALTER, DROP, UPDATE, DELETE, SHOW TABLES, or LIST TABLES")
 	}
 	if err != nil {
 		return nil, err
@@ -188,6 +232,159 @@ func Parse(input string) (Statement, error) {
 		return nil, fmt.Errorf("unexpected token after ;: %s", p.cur().Lexeme)
 	}
 	return s, nil
+}
+
+func (p *parser) createStmt() (Statement, error) {
+	p.take()
+	if e := p.want("TABLE"); e != nil {
+		return nil, e
+	}
+	name := p.cur().Lexeme
+	p.take()
+	if e := p.want("("); e != nil {
+		return nil, e
+	}
+	var cs []kv.Column
+	for {
+		n := p.cur().Lexeme
+		p.take()
+		typ := p.cur().Lexeme
+		p.take()
+		var ct kv.ColumnType
+		switch strings.ToUpper(typ) {
+		case "INT":
+			ct = kv.IntType
+		case "STRING", "TEXT":
+			ct = kv.StringType
+		case "BOOL", "BOOLEAN":
+			ct = kv.BoolType
+		default:
+			return nil, fmt.Errorf("unknown type %q", typ)
+		}
+		cs = append(cs, kv.Column{Name: n, Type: ct})
+		if p.cur().Type != Comma {
+			break
+		}
+		p.take()
+	}
+	if e := p.want(")"); e != nil {
+		return nil, e
+	}
+	return CreateTable{name, cs}, nil
+}
+func (p *parser) dropStmt() (Statement, error) {
+	p.take()
+	if strings.EqualFold(p.cur().Lexeme, "TABLE") {
+		p.take()
+		n := p.cur().Lexeme
+		p.take()
+		return DropTable{n}, nil
+	}
+	return nil, fmt.Errorf("expected TABLE")
+}
+func (p *parser) alterStmt() (Statement, error) {
+	p.take()
+	if e := p.want("TABLE"); e != nil {
+		return nil, e
+	}
+	t := p.cur().Lexeme
+	p.take()
+	action := strings.ToUpper(p.cur().Lexeme)
+	p.take()
+	switch action {
+	case "ADD":
+		p.want("COLUMN")
+		n := p.cur().Lexeme
+		p.take()
+		ty := p.cur().Lexeme
+		p.take()
+		var ct kv.ColumnType
+		switch strings.ToUpper(ty) {
+		case "INT":
+			ct = kv.IntType
+		case "STRING", "TEXT":
+			ct = kv.StringType
+		case "BOOL", "BOOLEAN":
+			ct = kv.BoolType
+		default:
+			return nil, fmt.Errorf("unknown type %q", ty)
+		}
+		return AlterTable{Table: t, Action: "add", Column: kv.Column{Name: n, Type: ct}}, nil
+	case "DROP":
+		p.want("COLUMN")
+		n := p.cur().Lexeme
+		p.take()
+		return AlterTable{Table: t, Action: "drop", Name: n}, nil
+	case "RENAME":
+		p.want("COLUMN")
+		n := p.cur().Lexeme
+		p.take()
+		if e := p.want("TO"); e != nil {
+			return nil, e
+		}
+		nn := p.cur().Lexeme
+		p.take()
+		return AlterTable{Table: t, Action: "rename", Name: n, NewName: nn}, nil
+	}
+	return nil, fmt.Errorf("unsupported ALTER action")
+}
+func (p *parser) updateStmt() (Statement, error) {
+	p.take()
+	t := p.cur().Lexeme
+	p.take()
+	if e := p.want("SET"); e != nil {
+		return nil, e
+	}
+	set := map[string]any{}
+	for {
+		n := p.cur().Lexeme
+		p.take()
+		if e := p.want("="); e != nil {
+			return nil, e
+		}
+		v, e := value(p.cur())
+		if e != nil {
+			return nil, e
+		}
+		p.take()
+		set[n] = v
+		if p.cur().Type != Comma {
+			break
+		}
+		p.take()
+	}
+	w, e := p.condition()
+	if e != nil {
+		return nil, e
+	}
+	return Update{t, set, w}, nil
+}
+func (p *parser) deleteStmt() (Statement, error) {
+	p.take()
+	if e := p.want("FROM"); e != nil {
+		return nil, e
+	}
+	t := p.cur().Lexeme
+	p.take()
+	w, e := p.condition()
+	return Delete{t, w}, e
+}
+func (p *parser) condition() (*Condition, error) {
+	if !strings.EqualFold(p.cur().Lexeme, "WHERE") {
+		return nil, nil
+	}
+	p.take()
+	c := p.cur().Lexeme
+	p.take()
+	if e := p.want("="); e != nil {
+		return nil, e
+	}
+	v, e := value(p.cur())
+	p.take()
+	if e != nil {
+		return nil, e
+	}
+	return &Condition{c, v}, nil
 }
 func (p *parser) cur() Token { return p.t[p.p] }
 func (p *parser) take() {
@@ -321,8 +518,98 @@ func (e *Executor) Execute(input string) (Result, error) {
 		return e.selectRows(q)
 	case ListTables:
 		return e.listTables()
+	case Update:
+		return e.update(q)
+	case Delete:
+		return e.delete(q)
+	case DropTable:
+		return e.drop(q)
+	case AlterTable:
+		return e.alter(q)
+	case CreateTable:
+		return e.create(q)
 	}
 	return Result{}, fmt.Errorf("unsupported statement")
+}
+func match(w *Condition, r kv.Row) bool {
+	return w == nil || fmt.Sprint(r[w.Column]) == fmt.Sprint(w.Value)
+}
+func (e *Executor) update(q Update) (Result, error) {
+	t, err := e.table(q.Table)
+	if err != nil {
+		return Result{}, err
+	}
+	n, err := t.Update(func(r kv.Row) bool { return match(q.Where, r) }, q.Set)
+	return Result{Affected: n}, err
+}
+func (e *Executor) delete(q Delete) (Result, error) {
+	t, err := e.table(q.Table)
+	if err != nil {
+		return Result{}, err
+	}
+	n, err := t.DeleteWhere(func(r kv.Row) bool { return match(q.Where, r) })
+	return Result{Affected: n}, err
+}
+func (e *Executor) drop(q DropTable) (Result, error) {
+	n := strings.ToLower(q.Table)
+	t, ok := e.Tables[n]
+	if !ok {
+		return Result{}, fmt.Errorf("unknown table %q", q.Table)
+	}
+	delete(e.Tables, n)
+	return Result{Affected: 1}, t.Close()
+}
+func (e *Executor) alter(q AlterTable) (Result, error) {
+	t, err := e.table(q.Table)
+	if err != nil {
+		return Result{}, err
+	}
+	s := t.Schema()
+	switch q.Action {
+	case "add":
+		s.Columns = append(s.Columns, q.Column)
+	case "drop":
+		var c []kv.Column
+		for _, x := range s.Columns {
+			if !strings.EqualFold(x.Name, q.Name) {
+				c = append(c, x)
+			}
+		}
+		s.Columns = c
+	case "rename":
+		for i := range s.Columns {
+			if strings.EqualFold(s.Columns[i].Name, q.Name) {
+				s.Columns[i].Name = q.NewName
+			}
+		}
+	}
+	if err = t.Alter(s); err != nil {
+		return Result{}, err
+	}
+	return Result{Affected: 1}, nil
+}
+func (e *Executor) create(q CreateTable) (Result, error) {
+	n := strings.ToLower(q.Table)
+	if e.Tables[n] != nil {
+		return Result{}, fmt.Errorf("table %q already exists", q.Table)
+	}
+	f, err := os.CreateTemp("", "mydb-table-")
+	if err != nil {
+		return Result{}, err
+	}
+	path := f.Name()
+	f.Close()
+	s, err := kv.Open(path)
+	if err != nil {
+		return Result{}, err
+	}
+	t, err := kv.NewTable(s, kv.Schema{Columns: q.Columns})
+	if err != nil {
+		s.Close()
+		return Result{}, err
+	}
+	e.Tables[n] = t
+	return Result{Affected: 1}, nil
 }
 
 func (e *Executor) listTables() (Result, error) {

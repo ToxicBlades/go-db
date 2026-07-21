@@ -72,6 +72,55 @@ INSERT INTO users (id, name, active)
 VALUES (2, 'Bob', false);
 ```
 
+### `CREATE TABLE`
+
+Creates a table with typed columns. Supported types are `INT`, `STRING` (or
+`TEXT`), and `BOOL` (or `BOOLEAN`). The first column is used as the row key.
+
+```sql
+CREATE TABLE users (id INT, name STRING, active BOOL);
+```
+
+### `ALTER TABLE`
+
+The supported schema changes are adding, dropping, and renaming columns:
+
+```sql
+ALTER TABLE users ADD COLUMN email STRING;
+ALTER TABLE users DROP COLUMN email;
+ALTER TABLE users RENAME COLUMN name TO display_name;
+```
+
+New columns receive their type's zero value in existing rows.
+
+### `DROP TABLE`
+
+Removes a table from the executor:
+
+```sql
+DROP TABLE users;
+```
+
+### `UPDATE`
+
+Updates one or more columns. An optional equality `WHERE` condition limits the
+rows affected. Without `WHERE`, every row is updated.
+
+```sql
+UPDATE users SET active = true WHERE id = 1;
+UPDATE users SET name = 'Ada', active = true;
+```
+
+### `DELETE`
+
+Deletes rows using an optional equality condition. Without `WHERE`, all rows
+are deleted.
+
+```sql
+DELETE FROM users WHERE id = 1;
+DELETE FROM users;
+```
+
 ## Values
 
 The parser accepts these literal types:
@@ -96,21 +145,11 @@ contain letters, digits, and underscores.
   `VALUES`.
 - Selecting an unknown column or table returns an error.
 
-## Unsupported commands
+## Tables
 
-The following common SQL commands are not implemented:
-
-```sql
-CREATE TABLE ...;
-ALTER TABLE ...;
-DROP TABLE ...;
-UPDATE ...;
-DELETE FROM ...;
-```
-
-Tables and their schemas are created by the Go application when the server
-starts. In the default setup, the available table is `users` with the schema
-`users(id INT, name STRING, active BOOL)`.
+Tables may be created with `CREATE TABLE`, or created by the Go application
+when the server starts. In the default setup, the available table is `users`
+with the schema `users(id INT, name STRING, active BOOL)`.
 
 ## Running SQL
 
@@ -145,4 +184,8 @@ VALUES (3, 'Casey', true);
 SELECT * FROM users;
 
 SELECT name FROM users WHERE id = 3;
+
+UPDATE users SET active = false WHERE id = 3;
+
+DELETE FROM users WHERE id = 3;
 ```
