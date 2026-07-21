@@ -65,11 +65,11 @@ indexes are rebuilt in memory from durable table rows on restart.
 
 ### Storage and operations
 
-- [ ] Add a background checkpoint/compaction policy and expose an explicit
+- [x] Add a background checkpoint/compaction policy and expose an explicit
   administrative command or API for stats, flush, and compaction.
-- [ ] Improve buffer-pool behavior under contention (avoid duplicate reads and
+- [x] Improve buffer-pool behavior under contention (avoid duplicate reads and
   make dirty-page ownership/eviction guarantees explicit).
-- [ ] Add page free-space management and page reuse after compaction, instead
+- [x] Add page free-space management and page reuse after compaction, instead
   of only growing the file monotonically.
 - [ ] Add configurable page size, buffer-pool capacity, and server settings
   only where they are useful; keep defaults simple.

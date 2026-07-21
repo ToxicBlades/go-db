@@ -80,6 +80,20 @@ func (s *Store) Stats() (Stats, error) {
 	return Stats{BufferPool: s.pager.BufferPoolStats(), PageCount: s.pager.NumPages(), WALSize: walSize}, nil
 }
 
+// Flush checkpoints dirty pages and the index without closing the store.
+func (s *Store) Flush() error {
+	if err := s.pager.Flush(); err != nil {
+		return err
+	}
+	if err := s.pager.Sync(); err != nil {
+		return err
+	}
+	if err := s.saveIndex(); err != nil {
+		return err
+	}
+	return s.wal.clear()
+}
+
 // Open opens a Store backed by the file at path, creating it if needed.
 func Open(path string) (*Store, error) {
 	pager, err := storage.Open(path)

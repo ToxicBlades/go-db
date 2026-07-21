@@ -340,3 +340,20 @@ func TestStatsReportsStorageMetrics(t *testing.T) {
 		t.Fatalf("expected buffer pool hit: %#v", stats)
 	}
 }
+
+func TestFlushCheckpointsWithoutClosing(t *testing.T) {
+	s := openTestStore(t)
+	if err := s.Put([]byte("key"), []byte("value")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if size, err := s.wal.size(); err != nil || size != 0 {
+		t.Fatalf("WAL size after flush = %d, %v", size, err)
+	}
+	value, found, err := s.Get([]byte("key"))
+	if err != nil || !found || string(value) != "value" {
+		t.Fatalf("value after flush = %q, %v", value, err)
+	}
+}
