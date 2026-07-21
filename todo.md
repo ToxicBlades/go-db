@@ -10,7 +10,3 @@
 ## Server / client
 - **Prepared statements / parameterized queries** — avoids re-parsing and is safer than string-building SQL.
 - **Authentication** on the TCP server.
-
-## Tooling / ops
-- **Metrics/stats** — buffer pool hit rate, page count, WAL size — since you already track LRU/dirty pages, exposing them is cheap and satisfying.
-- **Fuzz testing** on the SQL parser and WAL recovery path — recovery code is exactly the kind of thing that hides bugs until a real crash.

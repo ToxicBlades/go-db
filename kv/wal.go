@@ -60,6 +60,11 @@ func (w *wal) replay(apply func(byte, []byte, []byte) error) error {
 	if _, err := w.file.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
+	info, err := w.file.Stat()
+	if err != nil {
+		return fmt.Errorf("stat WAL for replay: %w", err)
+	}
+	remaining := info.Size()
 	r := bufio.NewReader(w.file)
 	for {
 		h := make([]byte, walHeader)
@@ -73,14 +78,17 @@ func (w *wal) replay(apply func(byte, []byte, []byte) error) error {
 		if string(h[:8]) != walMagic {
 			return fmt.Errorf("invalid WAL magic")
 		}
+		remaining -= walHeader
 		keyLen, valLen := binary.LittleEndian.Uint32(h[9:13]), binary.LittleEndian.Uint32(h[13:17])
-		if uint64(keyLen)+uint64(valLen) > uint64(^uint(0)>>1) {
+		bodyLen := uint64(keyLen) + uint64(valLen)
+		if bodyLen > uint64(remaining) || bodyLen > uint64(^uint(0)>>1) {
 			return fmt.Errorf("invalid WAL record length")
 		}
-		body := make([]byte, int(keyLen)+int(valLen))
+		body := make([]byte, int(bodyLen))
 		if _, err := io.ReadFull(r, body); err != nil {
 			return nil
 		}
+		remaining -= int64(bodyLen)
 		payload := append([]byte{h[8]}, body...)
 		if crc32.ChecksumIEEE(payload) != binary.LittleEndian.Uint32(h[17:21]) {
 			return fmt.Errorf("WAL checksum mismatch")
