@@ -1,2 +1,3 @@
 bin/
 mydb.db
+mydb.db.wal

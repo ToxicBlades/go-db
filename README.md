@@ -27,6 +27,8 @@ What's implemented so far:
 - **Write-ahead log** (`kv/`): Put/Delete operations are fsynced to a sidecar
   WAL before page changes; startup replays complete records, and clean close
   checkpoints the log.
+- **TCP protocol** (`server/`): newline-delimited JSON requests and responses
+  around the SQL executor, allowing clients to query over a network connection.
 
 ### On-disk format
 
@@ -101,8 +103,23 @@ OK
       SQL (`SELECT`, `INSERT`, `WHERE`), plus a naive query executor
 - [x] **6. Write-ahead log** — durability and crash recovery: log
       operations before applying them, replay on restart
-- [ ] **7. Network protocol** (stretch) — a TCP server so it can be
+- [x] **7. Network protocol** (stretch) — a TCP server so it can be
       queried like a real database, not just via the CLI
+
+### TCP protocol
+
+`server.Server` accepts one request per line. Requests may be JSON
+(`{"query":"SELECT * FROM users"}`) or plain SQL. Each response is one JSON
+object with `ok`, and query results in `columns`/`rows` or an error in `error`.
+
+The server takes an already-configured `sql.Executor`, since schemas are
+deliberately supplied by the caller in this milestone:
+
+```go
+s, _ := server.New(sql.NewExecutor(map[string]*kv.Table{"users": users}))
+go s.ListenAndServe(":5433")
+defer s.Close()
+```
 
 ## Project layout
 
