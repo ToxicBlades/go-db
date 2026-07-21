@@ -29,7 +29,19 @@ type Store struct {
 	index     btree
 	wal       *wal
 	indexPath string
+	seq       uint64
+	versions  map[string][]version
 }
+
+type version struct {
+	seq   uint64
+	value []byte
+	found bool
+}
+
+// Snapshot identifies the latest committed sequence visible to a reader.
+// Snapshots are immutable and remain valid while newer writes are appended.
+type Snapshot uint64
 
 // Stats is a point-in-time snapshot of storage metrics for this store.
 type Stats struct {
@@ -59,7 +71,7 @@ func Open(path string) (*Store, error) {
 		pager.Close()
 		return nil, err
 	}
-	s := &Store{path: path, pager: pager, wal: w, indexPath: path + ".idx"}
+	s := &Store{path: path, pager: pager, wal: w, indexPath: path + ".idx", versions: make(map[string][]version)}
 	indexLoaded, err := s.loadIndex()
 	if err != nil {
 		w.close()
@@ -77,6 +89,13 @@ func Open(path string) (*Store, error) {
 		s.firstPage = 0
 		s.hasPages = true
 		if err := s.rebuildIndex(); err != nil {
+			pager.Close()
+			return nil, err
+		}
+	}
+	if pager.NumPages() > 0 && indexLoaded {
+		if err := s.rebuildVersions(); err != nil {
+			w.close()
 			pager.Close()
 			return nil, err
 		}
@@ -172,6 +191,36 @@ func writeRecord(page *storage.Page, key, value []byte, flag byte) error {
 func (s *Store) Get(key []byte) (value []byte, found bool, err error) {
 	value, found = s.index.get(key)
 	return append([]byte(nil), value...), found, nil
+}
+
+// BeginSnapshot returns a consistent read point for the store.
+func (s *Store) BeginSnapshot() Snapshot { return Snapshot(s.seq) }
+
+// GetAt reads the value visible at snapshot. It does not observe later appends.
+func (s *Store) GetAt(snapshot Snapshot, key []byte) ([]byte, bool, error) {
+	vs := s.versions[string(key)]
+	for i := len(vs) - 1; i >= 0; i-- {
+		if vs[i].seq <= uint64(snapshot) {
+			return append([]byte(nil), vs[i].value...), vs[i].found, nil
+		}
+	}
+	return nil, false, nil
+}
+
+// KeysAt returns keys that are live at snapshot.
+func (s *Store) KeysAt(snapshot Snapshot) [][]byte {
+	keys := make([][]byte, 0)
+	for key, versions := range s.versions {
+		for i := len(versions) - 1; i >= 0; i-- {
+			if versions[i].seq <= uint64(snapshot) {
+				if versions[i].found {
+					keys = append(keys, []byte(key))
+				}
+				break
+			}
+		}
+	}
+	return keys
 }
 
 // Put writes (or overwrites) the value for key.
@@ -272,6 +321,8 @@ func (s *Store) Compact() error {
 // append writes a record to the last page in the chain, allocating a
 // new page if there isn't enough room.
 func (s *Store) append(key, value []byte, flag byte) error {
+	s.seq++
+	s.versions[string(key)] = append(s.versions[string(key)], version{seq: s.seq, value: append([]byte(nil), value...), found: flag == flagLive})
 	lastPage, err := s.lastPage()
 	if err != nil {
 		return err
@@ -366,6 +417,30 @@ func (s *Store) rebuildIndex() error {
 			} else {
 				s.index.put(r.key, r.value)
 			}
+			s.seq++
+			s.versions[string(r.key)] = append(s.versions[string(r.key)], version{seq: s.seq, value: append([]byte(nil), r.value...), found: r.flag == flagLive})
+			off += uint16(r.size)
+		}
+		if p.NextPageID() == storage.NoPage {
+			return nil
+		}
+		id = p.NextPageID()
+	}
+}
+
+func (s *Store) rebuildVersions() error {
+	for id := s.firstPage; ; {
+		p, err := s.pager.ReadPage(id)
+		if err != nil {
+			return err
+		}
+		for off := uint16(storage.HeaderSize); off < p.FreeOffset(); {
+			r, err := readRecord(p.Data[:], off)
+			if err != nil {
+				return err
+			}
+			s.seq++
+			s.versions[string(r.key)] = append(s.versions[string(r.key)], version{seq: s.seq, value: append([]byte(nil), r.value...), found: r.flag == flagLive})
 			off += uint16(r.size)
 		}
 		if p.NextPageID() == storage.NoPage {

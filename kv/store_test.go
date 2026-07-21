@@ -70,6 +70,25 @@ func TestOverwrite(t *testing.T) {
 	}
 }
 
+func TestSnapshotSeesPreviousVersion(t *testing.T) {
+	s := openTestStore(t)
+	if err := s.Put([]byte("k"), []byte("v1")); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := s.BeginSnapshot()
+	if err := s.Put([]byte("k"), []byte("v2")); err != nil {
+		t.Fatal(err)
+	}
+	value, found, err := s.GetAt(snapshot, []byte("k"))
+	if err != nil || !found || string(value) != "v1" {
+		t.Fatalf("snapshot value=%q found=%v err=%v", value, found, err)
+	}
+	value, found, err = s.Get([]byte("k"))
+	if err != nil || !found || string(value) != "v2" {
+		t.Fatalf("current value=%q found=%v err=%v", value, found, err)
+	}
+}
+
 func TestDelete(t *testing.T) {
 	s := openTestStore(t)
 

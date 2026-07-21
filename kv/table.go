@@ -150,6 +150,34 @@ func (t *Table) Get(key string) (Row, bool, error) {
 	return r, true, err
 }
 
+// Snapshot returns a stable read point for this table's store.
+func (t *Table) Snapshot() Snapshot { return t.store.BeginSnapshot() }
+
+// GetAt reads a row as it existed at snapshot.
+func (t *Table) GetAt(snapshot Snapshot, key string) (Row, bool, error) {
+	b, found, err := t.store.GetAt(snapshot, []byte(key))
+	if err != nil || !found {
+		return nil, found, err
+	}
+	r, err := t.decode(b)
+	return r, true, err
+}
+
+// ScanAt returns all rows visible at snapshot.
+func (t *Table) ScanAt(snapshot Snapshot) ([]Row, error) {
+	rows := make([]Row, 0)
+	for _, key := range t.store.KeysAt(snapshot) {
+		row, found, err := t.GetAt(snapshot, string(key))
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			rows = append(rows, row)
+		}
+	}
+	return rows, nil
+}
+
 func (t *Table) Delete(key string) error {
 	old, found, err := t.Get(key)
 	if err != nil || !found {
