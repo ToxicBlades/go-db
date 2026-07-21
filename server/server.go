@@ -4,6 +4,8 @@ package server
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,11 +32,11 @@ type Response struct {
 }
 
 type Server struct {
-	Executor *sql.Executor
-	Username string
-	Password string
-	mu       sync.Mutex
-	ln       net.Listener
+	Executor     *sql.Executor
+	Username     string
+	passwordHash [sha256.Size]byte
+	mu           sync.Mutex
+	ln           net.Listener
 }
 
 func New(executor *sql.Executor) (*Server, error) {
@@ -54,7 +56,8 @@ func NewWithAuth(executor *sql.Executor, username, password string) (*Server, er
 	if err != nil {
 		return nil, err
 	}
-	s.Username, s.Password = username, password
+	s.Username = username
+	s.passwordHash = sha256.Sum256([]byte(password))
 	return s, nil
 }
 
@@ -100,12 +103,15 @@ func (s *Server) handle(conn net.Conn) {
 		}
 	}()
 	sc := bufio.NewScanner(conn)
+	sc.Buffer(make([]byte, 4096), 1<<20)
 	if s.Username != "" {
 		if !sc.Scan() {
 			return
 		}
 		var auth AuthRequest
-		if err := json.Unmarshal([]byte(strings.TrimSpace(sc.Text())), &auth); err != nil || auth.Username != s.Username || auth.Password != s.Password {
+		err := json.Unmarshal([]byte(strings.TrimSpace(sc.Text())), &auth)
+		candidate := sha256.Sum256([]byte(auth.Password))
+		if err != nil || auth.Username != s.Username || subtle.ConstantTimeCompare(candidate[:], s.passwordHash[:]) != 1 {
 			s.write(conn, Response{Error: "authentication failed"})
 			return
 		}

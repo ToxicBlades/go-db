@@ -71,11 +71,11 @@ indexes are rebuilt in memory from durable table rows on restart.
   make dirty-page ownership/eviction guarantees explicit).
 - [x] Add page free-space management and page reuse after compaction, instead
   of only growing the file monotonically.
-- [ ] Add configurable page size, buffer-pool capacity, and server settings
+- [x] Add configurable page size, buffer-pool capacity, and server settings
   only where they are useful; keep defaults simple.
-- [ ] Add protocol limits and timeouts for oversized lines, idle clients, and
+- [x] Add protocol limits and timeouts for oversized lines, idle clients, and
   slow readers, plus graceful shutdown tests.
-- [ ] Hash passwords instead of retaining a plaintext server password, and
+- [x] Hash passwords instead of retaining a plaintext server password, and
   document that the current authentication is not encrypted without TLS.
 
 ### Developer experience
