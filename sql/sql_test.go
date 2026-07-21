@@ -31,8 +31,33 @@ func TestSQLInsertSelectWhere(t *testing.T) {
 }
 
 func TestSQLRejectsUnsupported(t *testing.T) {
-	if _, err := Parse("DELETE FROM users"); err == nil {
+	if _, err := Parse("DELETE FROM users WHERE id ~~ 1"); err == nil {
 		t.Fatal("expected parse error")
+	}
+}
+
+func TestSQLWhereBooleanAndComparisons(t *testing.T) {
+	s, err := kv.Open(t.TempDir() + "/db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl, err := kv.NewTable(s, kv.Schema{Columns: []kv.Column{{Name: "id", Type: kv.IntType}, {Name: "name", Type: kv.StringType}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tbl.Close()
+	e := NewExecutor(map[string]*kv.Table{"users": tbl})
+	for _, q := range []string{"INSERT INTO users (id,name) VALUES (1,'Ada')", "INSERT INTO users (id,name) VALUES (2,'Bob')", "INSERT INTO users (id,name) VALUES (3,'Cid')"} {
+		if _, err := e.Execute(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, err := e.Execute("SELECT id FROM users WHERE id >= 2 AND id != 3 OR name = 'Ada'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Rows) != 2 {
+		t.Fatalf("unexpected rows: %#v", r.Rows)
 	}
 }
 

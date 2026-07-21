@@ -39,18 +39,17 @@ SELECT * FROM users;
 
 #### Filtering with `WHERE`
 
-Only equality conditions are supported. The condition has the form
-`column = value`:
+Conditions support `=`, `!=`, `<`, `>`, `<=`, and `>=`, combined with `AND`,
+`OR`, and parentheses. `AND` binds more tightly than `OR`:
 
 ```sql
 SELECT name, active
 FROM users
-WHERE id = 1;
+WHERE active = true AND (id >= 1 OR name != 'Bob');
 ```
 
 The comparison is performed against the displayed value of the stored value.
-There is no support for `AND`, `OR`, ordering, grouping, joins, or other
-comparison operators.
+There is no support for ordering, grouping, or joins.
 
 ### `INSERT`
 
@@ -107,7 +106,7 @@ DROP TABLE users;
 
 ### `UPDATE`
 
-Updates one or more columns. An optional equality `WHERE` condition limits the
+Updates one or more columns. An optional `WHERE` condition limits the
 rows affected. Without `WHERE`, every row is updated.
 
 ```sql
@@ -117,7 +116,7 @@ UPDATE users SET name = 'Ada', active = true;
 
 ### `DELETE`
 
-Deletes rows using an optional equality condition. Without `WHERE`, all rows
+Deletes rows using an optional condition. Without `WHERE`, all rows
 are deleted.
 
 ```sql

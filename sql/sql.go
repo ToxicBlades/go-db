@@ -25,6 +25,11 @@ const (
 	LParen
 	RParen
 	Equal
+	NotEqual
+	Less
+	Greater
+	LessEqual
+	GreaterEqual
 	Semicolon
 )
 
@@ -57,6 +62,26 @@ func Lex(input string) ([]Token, error) {
 		case '=':
 			out = append(out, Token{Equal, "="})
 			i++
+			continue
+		case '!', '<', '>':
+			typ := map[byte]TokenType{'!': NotEqual, '<': Less, '>': Greater}[c]
+			lex := string(c)
+			i++
+			if i < len(input) && input[i] == '=' {
+				if c == '!' {
+					typ = NotEqual
+				} else if c == '<' {
+					typ = LessEqual
+				} else {
+					typ = GreaterEqual
+				}
+				lex += "="
+				i++
+			}
+			if c == '!' && lex != "!=" {
+				return nil, fmt.Errorf("unexpected character %q", c)
+			}
+			out = append(out, Token{typ, lex})
 			continue
 		case ';':
 			out = append(out, Token{Semicolon, ";"})
@@ -99,7 +124,7 @@ func Lex(input string) ([]Token, error) {
 		word := input[start:i]
 		upper := strings.ToUpper(word)
 		typ := Identifier
-		if upper == "SELECT" || upper == "FROM" || upper == "WHERE" || upper == "INSERT" || upper == "INTO" || upper == "VALUES" || upper == "SHOW" || upper == "TABLES" || upper == "LIST" || upper == "CREATE" || upper == "TABLE" || upper == "ALTER" || upper == "ADD" || upper == "COLUMN" || upper == "DROP" || upper == "RENAME" || upper == "TO" || upper == "UPDATE" || upper == "SET" || upper == "DELETE" {
+		if upper == "SELECT" || upper == "FROM" || upper == "WHERE" || upper == "INSERT" || upper == "INTO" || upper == "VALUES" || upper == "SHOW" || upper == "TABLES" || upper == "LIST" || upper == "CREATE" || upper == "TABLE" || upper == "ALTER" || upper == "ADD" || upper == "COLUMN" || upper == "DROP" || upper == "RENAME" || upper == "TO" || upper == "UPDATE" || upper == "SET" || upper == "DELETE" || upper == "AND" || upper == "OR" {
 			typ = Keyword
 		}
 		if upper == "TRUE" || upper == "FALSE" {
@@ -169,8 +194,11 @@ type Delete struct {
 func (Delete) isStatement() {}
 
 type Condition struct {
-	Column string
-	Value  any
+	Column      string
+	Operator    string
+	Value       any
+	Left, Right *Condition
+	Logic       string
 }
 
 type parser struct {
@@ -374,17 +402,63 @@ func (p *parser) condition() (*Condition, error) {
 		return nil, nil
 	}
 	p.take()
-	c := p.cur().Lexeme
-	p.take()
-	if e := p.want("="); e != nil {
-		return nil, e
+	return p.parseOr()
+}
+func (p *parser) parseOr() (*Condition, error) {
+	left, err := p.parseAnd()
+	if err != nil {
+		return nil, err
 	}
-	v, e := value(p.cur())
-	p.take()
-	if e != nil {
-		return nil, e
+	for strings.EqualFold(p.cur().Lexeme, "OR") {
+		p.take()
+		right, e := p.parseAnd()
+		if e != nil {
+			return nil, e
+		}
+		left = &Condition{Left: left, Right: right, Logic: "OR"}
 	}
-	return &Condition{c, v}, nil
+	return left, nil
+}
+func (p *parser) parseAnd() (*Condition, error) {
+	left, err := p.parsePrimary()
+	if err != nil {
+		return nil, err
+	}
+	for strings.EqualFold(p.cur().Lexeme, "AND") {
+		p.take()
+		right, e := p.parsePrimary()
+		if e != nil {
+			return nil, e
+		}
+		left = &Condition{Left: left, Right: right, Logic: "AND"}
+	}
+	return left, nil
+}
+func (p *parser) parsePrimary() (*Condition, error) {
+	if p.cur().Type == LParen {
+		p.take()
+		c, err := p.parseOr()
+		if err != nil {
+			return nil, err
+		}
+		if err = p.want(")"); err != nil {
+			return nil, err
+		}
+		return c, nil
+	}
+	col := p.cur().Lexeme
+	p.take()
+	op := p.cur().Lexeme
+	if p.cur().Type != Equal && p.cur().Type != NotEqual && p.cur().Type != Less && p.cur().Type != Greater && p.cur().Type != LessEqual && p.cur().Type != GreaterEqual {
+		return nil, fmt.Errorf("expected comparison operator")
+	}
+	p.take()
+	v, err := value(p.cur())
+	if err != nil {
+		return nil, err
+	}
+	p.take()
+	return &Condition{Column: col, Operator: op, Value: v}, nil
 }
 func (p *parser) cur() Token { return p.t[p.p] }
 func (p *parser) take() {
@@ -420,20 +494,9 @@ func (p *parser) selectStmt() (Statement, error) {
 	}
 	table := p.cur().Lexeme
 	p.take()
-	var w *Condition
-	if strings.EqualFold(p.cur().Lexeme, "WHERE") {
-		p.take()
-		col := p.cur().Lexeme
-		p.take()
-		if e := p.want("="); e != nil {
-			return nil, e
-		}
-		v, e := value(p.cur())
-		if e != nil {
-			return nil, e
-		}
-		p.take()
-		w = &Condition{col, v}
+	w, err := p.condition()
+	if err != nil {
+		return nil, err
 	}
 	return Select{cols, table, w}, nil
 }
@@ -532,7 +595,74 @@ func (e *Executor) Execute(input string) (Result, error) {
 	return Result{}, fmt.Errorf("unsupported statement")
 }
 func match(w *Condition, r kv.Row) bool {
-	return w == nil || fmt.Sprint(r[w.Column]) == fmt.Sprint(w.Value)
+	if w == nil {
+		return true
+	}
+	if w.Logic == "AND" {
+		return match(w.Left, r) && match(w.Right, r)
+	}
+	if w.Logic == "OR" {
+		return match(w.Left, r) || match(w.Right, r)
+	}
+	cmp := compare(r[w.Column], w.Value)
+	switch w.Operator {
+	case "=":
+		return cmp == 0
+	case "!=":
+		return cmp != 0
+	case "<":
+		return cmp < 0
+	case ">":
+		return cmp > 0
+	case "<=":
+		return cmp <= 0
+	case ">=":
+		return cmp >= 0
+	}
+	return false
+}
+func compare(a, b any) int {
+	if x, ok := a.(int); ok {
+		if y, ok := b.(int); ok {
+			if x < y {
+				return -1
+			}
+			if x > y {
+				return 1
+			}
+			return 0
+		}
+	}
+	if x, ok := a.(string); ok {
+		if y, ok := b.(string); ok {
+			if x < y {
+				return -1
+			}
+			if x > y {
+				return 1
+			}
+			return 0
+		}
+	}
+	if x, ok := a.(bool); ok {
+		if y, ok := b.(bool); ok {
+			if x == y {
+				return 0
+			}
+			if !x {
+				return -1
+			}
+			return 1
+		}
+	}
+	left, right := fmt.Sprint(a), fmt.Sprint(b)
+	if left < right {
+		return -1
+	}
+	if left > right {
+		return 1
+	}
+	return 0
 }
 func (e *Executor) update(q Update) (Result, error) {
 	t, err := e.table(q.Table)
@@ -701,7 +831,7 @@ func (e *Executor) selectRows(q Select) (Result, error) {
 	}
 	out := Result{Columns: cols}
 	for _, r := range rows {
-		if q.Where != nil && fmt.Sprint(r[q.Where.Column]) != fmt.Sprint(q.Where.Value) {
+		if !match(q.Where, r) {
 			continue
 		}
 		selected := kv.Row{}
