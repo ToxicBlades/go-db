@@ -39,6 +39,9 @@ EXPLAIN SELECT * FROM users WHERE active = true;
 `EXPLAIN` supports `SELECT`, `INSERT`, `UPDATE`, and `DELETE` and does not
 execute the wrapped statement.
 
+Simple equality filters on indexed non-key columns use an index scan; other
+predicates use a sequential scan. `EXPLAIN` reports the selected scan type.
+
 Use `EXPLAIN TABLE` to inspect a table's columns and constraints:
 
 ```sql

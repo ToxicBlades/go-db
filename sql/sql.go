@@ -1236,10 +1236,15 @@ func (e *Executor) explain(s Statement) (Result, error) {
 	switch q := s.(type) {
 	case Select:
 		filter := "none"
+		scan := "Seq Scan"
 		if q.Where != nil {
 			filter = "apply WHERE predicate"
+			if t, err := e.table(q.Table); err == nil && isIndexedEquality(t, q.Where) {
+				scan = "Index Scan"
+				filter = fmt.Sprintf("index condition: %s = %v", q.Where.Column, q.Where.Value)
+			}
 		}
-		plan = fmt.Sprintf("Seq Scan on %s; filter: %s; projection: %s", q.Table, filter, strings.Join(q.Columns, ", "))
+		plan = fmt.Sprintf("%s on %s; filter: %s; projection: %s", scan, q.Table, filter, strings.Join(q.Columns, ", "))
 	case Insert:
 		plan = fmt.Sprintf("Insert into %s; columns: %s", q.Table, strings.Join(q.Columns, ", "))
 	case Update:
@@ -1725,10 +1730,10 @@ func (e *Executor) selectRows(q Select) (Result, error) {
 		return Result{}, err
 	}
 	rows, err := e.rows(t)
-	if e.tx == nil && q.Where != nil && q.JoinTable == "" && q.Where.Operator == "=" && q.Where.Column != "" && q.Where.Left == nil && q.Where.Right == nil {
+	if e.tx == nil && q.JoinTable == "" && isIndexedEquality(t, q.Where) {
 		if indexed, findErr := t.Find(q.Where.Column, q.Where.Value); findErr != nil {
 			return Result{}, findErr
-		} else if indexed != nil {
+		} else {
 			rows = indexed
 		}
 	}
@@ -1828,6 +1833,10 @@ func (e *Executor) selectRows(q Select) (Result, error) {
 		out.Rows = append(out.Rows, selected)
 	}
 	return applyPagingAndOrder(out, q)
+}
+
+func isIndexedEquality(t *kv.Table, where *Condition) bool {
+	return where != nil && where.Operator == "=" && where.Column != "" && where.Left == nil && where.Right == nil && where.Value != nil && t.HasIndex(where.Column)
 }
 
 func lookup(r kv.Row, name string) any {

@@ -267,6 +267,13 @@ func (t *Table) Find(column string, value any) ([]Row, error) {
 	return rows, nil
 }
 
+// HasIndex reports whether equality lookups on column have a maintained
+// secondary index.
+func (t *Table) HasIndex(column string) bool {
+	_, ok := t.secondary[column]
+	return ok
+}
+
 // Scan returns every currently live row. It is intentionally a full scan;
 // callers that need efficient point lookups should use Get.
 func (t *Table) Scan() ([]Row, error) {

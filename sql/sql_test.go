@@ -95,6 +95,35 @@ func TestSQLExplainDoesNotExecute(t *testing.T) {
 	}
 }
 
+func TestSQLUsesSecondaryIndexForEquality(t *testing.T) {
+	s, err := kv.Open(t.TempDir() + "/db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl, err := kv.NewTable(s, kv.Schema{Columns: []kv.Column{{Name: "id", Type: kv.IntType}, {Name: "name", Type: kv.StringType}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tbl.Close()
+	e := NewExecutor(map[string]*kv.Table{"users": tbl})
+	for _, query := range []string{
+		"INSERT INTO users (id, name) VALUES (1, 'Ada')",
+		"INSERT INTO users (id, name) VALUES (2, 'Bob')",
+	} {
+		if _, err := e.Execute(query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, err := e.Execute("EXPLAIN SELECT id FROM users WHERE name = 'missing'")
+	if err != nil || len(r.Rows) != 1 || !strings.Contains(r.Rows[0]["plan"].(string), "Index Scan on users") {
+		t.Fatalf("unexpected indexed plan: %#v %v", r.Rows, err)
+	}
+	r, err = e.Execute("SELECT id FROM users WHERE name = 'missing'")
+	if err != nil || len(r.Rows) != 0 {
+		t.Fatalf("indexed empty result: %#v %v", r.Rows, err)
+	}
+}
+
 func TestSQLExplainTable(t *testing.T) {
 	s, err := kv.Open(t.TempDir() + "/db")
 	if err != nil {

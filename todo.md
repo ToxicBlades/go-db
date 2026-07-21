@@ -44,9 +44,10 @@ indexes are not reconstructed from durable catalog metadata on restart.
   the intentionally small SQL surface and test unsupported syntax clearly.
 - [ ] Replace the nested-loop join with a hash join or an indexed join when a
   suitable equality key exists; include plan choices in `EXPLAIN`.
-- [ ] Add a real query-planning layer: use secondary indexes for equality
-  predicates in SQL, estimate/select scan strategies, and avoid sorting or
-  grouping more rows than necessary.
+- [x] Use secondary indexes for simple equality predicates in SQL and show the
+  selected index scan in `EXPLAIN`.
+- [ ] Add cost estimates/scan strategy selection and avoid sorting or grouping
+  more rows than necessary.
 - [ ] Add tests for duplicate constraints, foreign-key enforcement, NULLs,
   aggregates over empty input, ordering ties, pagination boundaries, and
   atomic multi-statement failures.
@@ -90,11 +91,3 @@ indexes are not reconstructed from durable catalog metadata on restart.
   table, using a prepared statement, and closing it safely.
 - [ ] Keep `README.md` and `SQL_COMMANDS.md` synchronized as durable catalogs,
   SQL behavior, commands, and operational guarantees evolve.
-
-## Recommended order
-
-1. Durable catalog and restart tests.
-2. Consistent backup/restore and corruption checks.
-3. Transaction/concurrency tests with the race detector.
-4. SQL NULL behavior and constraint edge cases.
-5. Query planning/index use, then performance work.
