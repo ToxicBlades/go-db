@@ -17,6 +17,10 @@ import (
 type Request struct {
 	Query string `json:"query"`
 }
+type AuthRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
 type Response struct {
 	OK       bool             `json:"ok"`
 	Columns  []string         `json:"columns,omitempty"`
@@ -27,6 +31,8 @@ type Response struct {
 
 type Server struct {
 	Executor *sql.Executor
+	Username string
+	Password string
 	mu       sync.Mutex
 	ln       net.Listener
 }
@@ -36,6 +42,20 @@ func New(executor *sql.Executor) (*Server, error) {
 		return nil, fmt.Errorf("nil executor")
 	}
 	return &Server{Executor: executor}, nil
+}
+
+// NewWithAuth creates a server that requires clients to authenticate before
+// sending SQL.
+func NewWithAuth(executor *sql.Executor, username, password string) (*Server, error) {
+	if username == "" || password == "" {
+		return nil, fmt.Errorf("authentication credentials are required")
+	}
+	s, err := New(executor)
+	if err != nil {
+		return nil, err
+	}
+	s.Username, s.Password = username, password
+	return s, nil
 }
 
 // ListenAndServe listens on addr (for example ":5433") and serves clients
@@ -79,6 +99,17 @@ func (s *Server) handle(conn net.Conn) {
 	// server's table registry and underlying tables.
 	executor := sql.NewExecutor(s.Executor.Tables)
 	sc := bufio.NewScanner(conn)
+	if s.Username != "" {
+		if !sc.Scan() {
+			return
+		}
+		var auth AuthRequest
+		if err := json.Unmarshal([]byte(strings.TrimSpace(sc.Text())), &auth); err != nil || auth.Username != s.Username || auth.Password != s.Password {
+			s.write(conn, Response{Error: "authentication failed"})
+			return
+		}
+		s.write(conn, Response{OK: true})
+	}
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" {

@@ -262,6 +262,10 @@ Connect with the interactive SQL client:
 go run ./cmd/mydb sql --addr :5433
 ```
 
+When the server is started with `--user` and `--password`, pass the same
+options to the client. The client authenticates before sending SQL; failed
+authentication closes the connection.
+
 The server also accepts newline-delimited plain SQL or JSON requests such as:
 
 ```json

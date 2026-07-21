@@ -86,11 +86,13 @@ make start
 make sql
 ```
 
-The server can also be started directly:
+The server can also be started directly. Authentication is enabled by providing
+both `--user` and `--password`; clients must provide the same credentials:
 
 ```bash
 go run ./cmd/mydb server --db mydb.db --addr :5433 --seed seed.sql
-go run ./cmd/mydb sql --addr :5433
+go run ./cmd/mydb server --db mydb.db --addr :5433 --user alice --password secret
+go run ./cmd/mydb sql --addr :5433 --user alice --password secret
 
 # Snapshot or restore a database and its sibling .wal file
 go run ./cmd/mydb backup mydb.db mydb.backup

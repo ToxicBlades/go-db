@@ -59,7 +59,12 @@ func serverCommand(args []string) {
 	dbPath := flags.String("db", "mydb.db", "database file")
 	addr := flags.String("addr", ":5433", "TCP address to listen on")
 	seedPath := flags.String("seed", "seed.sql", "SQL file to run before starting")
+	username := flags.String("user", "", "TCP username (enables authentication)")
+	password := flags.String("password", "", "TCP password (enables authentication)")
 	flags.Parse(args)
+	if (*username == "") != (*password == "") {
+		fatal("server", fmt.Errorf("--user and --password must be provided together"))
+	}
 	store, err := kv.Open(*dbPath)
 	if err != nil {
 		fatal("opening store", err)
@@ -74,7 +79,12 @@ func serverCommand(args []string) {
 		_ = store.Close()
 		fatal("running seed file", err)
 	}
-	s, err := server.New(executor)
+	var s *server.Server
+	if *username != "" {
+		s, err = server.NewWithAuth(executor, *username, *password)
+	} else {
+		s, err = server.New(executor)
+	}
 	if err != nil {
 		_ = store.Close()
 		fatal("creating server", err)
@@ -93,13 +103,30 @@ func serverCommand(args []string) {
 func sqlCommand(args []string) {
 	flags := flag.NewFlagSet("sql", flag.ExitOnError)
 	addr := flags.String("addr", ":5433", "SQL server address")
+	username := flags.String("user", "", "TCP username")
+	password := flags.String("password", "", "TCP password")
 	flags.Parse(args)
+	if (*username == "") != (*password == "") {
+		fatal("sql", fmt.Errorf("--user and --password must be provided together"))
+	}
 
 	conn, err := net.Dial("tcp", *addr)
 	if err != nil {
 		fatal("connecting to server", err)
 	}
 	defer conn.Close()
+	if *username != "" {
+		if _, err := fmt.Fprintf(conn, `{"username":%q,"password":%q}`+"\n", *username, *password); err != nil {
+			fatal("authenticating", err)
+		}
+		var response server.Response
+		if err := json.NewDecoder(conn).Decode(&response); err != nil || !response.OK {
+			if err == nil {
+				err = fmt.Errorf("%s", response.Error)
+			}
+			fatal("authenticating", err)
+		}
+	}
 
 	fmt.Printf("connected to mydb at %s (type SQL or exit)\n", *addr)
 	scanner := bufio.NewScanner(os.Stdin)

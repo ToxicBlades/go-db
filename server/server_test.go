@@ -53,3 +53,36 @@ func TestProtocol(t *testing.T) {
 		t.Fatalf("error response: %#v", r)
 	}
 }
+
+func TestAuthentication(t *testing.T) {
+	s, err := NewWithAuth(sql.NewExecutor(nil), "alice", "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	go s.handle(a)
+	client := bufio.NewReader(b)
+	if _, err = b.Write([]byte(`{"username":"alice","password":"secret"}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	var response Response
+	if err = json.NewDecoder(client).Decode(&response); err != nil || !response.OK {
+		t.Fatalf("authentication response: %#v %v", response, err)
+	}
+
+	c, d := net.Pipe()
+	defer c.Close()
+	defer d.Close()
+	go s.handle(c)
+	if _, err = d.Write([]byte(`{"username":"alice","password":"wrong"}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err = json.NewDecoder(bufio.NewReader(d)).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.OK || response.Error != "authentication failed" {
+		t.Fatalf("failed authentication response: %#v", response)
+	}
+}
