@@ -271,6 +271,47 @@ func TestSQLTransactionReadsOwnWrites(t *testing.T) {
 	}
 }
 
+func TestSQLTransactionWriteConflict(t *testing.T) {
+	s, err := kv.Open(t.TempDir() + "/db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl, err := kv.NewTable(s, kv.Schema{Columns: []kv.Column{{Name: "id", Type: kv.IntType}, {Name: "name", Type: kv.StringType}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tbl.Close()
+	if err := tbl.Insert("1", kv.Row{"id": 1, "name": "original"}); err != nil {
+		t.Fatal(err)
+	}
+	one := NewExecutor(map[string]*kv.Table{"users": tbl})
+	two := NewExecutor(map[string]*kv.Table{"users": tbl})
+	if _, err := one.Execute("BEGIN"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := two.Execute("BEGIN"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := one.Execute("UPDATE users SET name = 'one' WHERE id = 1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := one.Execute("COMMIT"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := two.Execute("UPDATE users SET name = 'two' WHERE id = 1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := two.Execute("COMMIT"); err == nil {
+		t.Fatal("expected write conflict")
+	}
+	if !two.InTransaction() {
+		t.Fatal("conflicted transaction should remain open")
+	}
+	if _, err := two.Execute("ROLLBACK"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSQLTransactionControlErrors(t *testing.T) {
 	e := NewExecutor(nil)
 	if _, err := e.Execute("COMMIT"); err == nil {

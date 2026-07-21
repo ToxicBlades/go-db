@@ -1081,6 +1081,13 @@ func (e *Executor) commit() (Result, error) {
 		return Result{}, fmt.Errorf("no transaction in progress")
 	}
 	for _, state := range e.tx.tables {
+		for key := range state.writes {
+			if state.t.ChangedSince(state.readAt, key) {
+				return Result{}, fmt.Errorf("transaction conflict on key %q", key)
+			}
+		}
+	}
+	for _, state := range e.tx.tables {
 		writes := make(map[string]kv.TransactionRow, len(state.writes))
 		for key, write := range state.writes {
 			writes[key] = kv.TransactionRow{Row: write.row, Deleted: write.deleted}

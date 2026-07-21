@@ -180,6 +180,11 @@ func (t *Table) Get(key string) (Row, bool, error) {
 // Snapshot returns a stable read point for this table's store.
 func (t *Table) Snapshot() Snapshot { return t.store.BeginSnapshot() }
 
+// ChangedSince reports whether a key changed after snapshot.
+func (t *Table) ChangedSince(snapshot Snapshot, key string) bool {
+	return t.store.ChangedSince(snapshot, []byte(key))
+}
+
 // GetAt reads a row as it existed at snapshot.
 func (t *Table) GetAt(snapshot Snapshot, key string) (Row, bool, error) {
 	b, found, err := t.store.GetAt(snapshot, []byte(key))

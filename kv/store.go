@@ -216,6 +216,12 @@ func (s *Store) Get(key []byte) (value []byte, found bool, err error) {
 // BeginSnapshot returns a consistent read point for the store.
 func (s *Store) BeginSnapshot() Snapshot { return Snapshot(s.seq) }
 
+// ChangedSince reports whether key has a version newer than snapshot.
+func (s *Store) ChangedSince(snapshot Snapshot, key []byte) bool {
+	vs := s.versions[string(key)]
+	return len(vs) > 0 && vs[len(vs)-1].seq > uint64(snapshot)
+}
+
 // GetAt reads the value visible at snapshot. It does not observe later appends.
 func (s *Store) GetAt(snapshot Snapshot, key []byte) ([]byte, bool, error) {
 	vs := s.versions[string(key)]

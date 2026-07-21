@@ -23,7 +23,7 @@
 - [x] **Concurrent transactions** — allow independent client transactions to
   interleave between requests while preserving snapshot reads. Write conflict
   detection remains a separate step.
-- [ ] **Conflict detection** — detect write/write conflicts and define the
+- [x] **Conflict detection** — detect write/write conflicts and define the
   behavior for concurrent updates or deletes of the same key.
 - [ ] **Commit ordering** — use a single durable commit sequence so snapshots
   have a stable ordering across tables and after restart.
