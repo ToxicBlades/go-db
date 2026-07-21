@@ -162,7 +162,7 @@ func (t *Table) validateConstraints(key string, row Row) error {
 			continue
 		}
 		for _, old := range rows {
-			if fmt.Sprint(old[t.schema.Columns[0].Name]) != key && old[c.Name] == row[c.Name] {
+			if fmt.Sprint(old[t.schema.Columns[0].Name]) != key && indexValue(old[c.Name]) == indexValue(row[c.Name]) {
 				return fmt.Errorf("unique constraint failed: %s", c.Name)
 			}
 		}
@@ -359,11 +359,15 @@ func (t *Table) Alter(schema Schema) error {
 	if err != nil {
 		return err
 	}
+	converted := make([]Row, 0, len(rows))
 	for _, r := range rows {
 		nr := Row{}
-		for _, c := range schema.Columns {
+		for i, c := range schema.Columns {
 			if v, ok := r[c.Name]; ok {
 				nr[c.Name] = v
+			} else if len(schema.Columns) == len(old.Columns) && i < len(old.Columns) && old.Columns[i].Type == c.Type {
+				// Preserve a value when a column was renamed in place.
+				nr[c.Name] = r[old.Columns[i].Name]
 			} else {
 				switch c.Type {
 				case IntType:
@@ -381,11 +385,24 @@ func (t *Table) Alter(schema Schema) error {
 				}
 			}
 		}
-		if err = t.Insert(fmt.Sprint(r[old.Columns[0].Name]), nr); err != nil {
-			return err
-		}
+		converted = append(converted, nr)
 	}
 	t.schema = schema
+	t.secondary = map[string]map[string]map[string]struct{}{}
+	for _, c := range schema.Columns[1:] {
+		t.secondary[c.Name] = map[string]map[string]struct{}{}
+	}
+	for _, row := range converted {
+		key := fmt.Sprint(row[schema.Columns[0].Name])
+		encoded, err := t.encode(row)
+		if err != nil {
+			return err
+		}
+		if err := t.store.Put([]byte(key), encoded); err != nil {
+			return err
+		}
+		t.indexRow(key, row)
+	}
 	return nil
 }
 

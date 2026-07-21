@@ -386,3 +386,75 @@ func TestSQLOrderLimitOffsetAndAggregates(t *testing.T) {
 		t.Fatalf("aggregate row: %#v", r.Rows[0])
 	}
 }
+
+func TestSQLNullPredicatesAndAggregates(t *testing.T) {
+	s, err := kv.Open(t.TempDir() + "/db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl, err := kv.NewTable(s, kv.Schema{Columns: []kv.Column{{Name: "id", Type: kv.IntType}, {Name: "name", Type: kv.StringType}, {Name: "score", Type: kv.IntType}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tbl.Close()
+	e := NewExecutor(map[string]*kv.Table{"users": tbl})
+	for _, query := range []string{
+		"INSERT INTO users (id, name, score) VALUES (1, 'Ada', NULL)",
+		"INSERT INTO users (id, name, score) VALUES (2, NULL, 10)",
+		"INSERT INTO users (id, name, score) VALUES (3, 'Cid', 20)",
+	} {
+		if _, err := e.Execute(query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, err := e.Execute("SELECT id FROM users WHERE name IS NULL")
+	if err != nil || len(r.Rows) != 1 || r.Rows[0]["id"] != 2 {
+		t.Fatalf("IS NULL result=%#v err=%v", r.Rows, err)
+	}
+	r, err = e.Execute("SELECT id FROM users WHERE score IS NOT NULL AND name != NULL")
+	if err != nil || len(r.Rows) != 0 {
+		t.Fatalf("NULL comparison should be unknown: %#v err=%v", r.Rows, err)
+	}
+	r, err = e.Execute("SELECT COUNT(score), SUM(score), AVG(score), MIN(score), MAX(score) FROM users")
+	if err != nil || len(r.Rows) != 1 {
+		t.Fatalf("aggregate NULL result=%#v err=%v", r.Rows, err)
+	}
+	row := r.Rows[0]
+	if row["COUNT(score)"] != 2 || row["SUM(score)"] != 30 || row["AVG(score)"] != 15.0 || row["MIN(score)"] != 10 || row["MAX(score)"] != 20 {
+		t.Fatalf("unexpected NULL aggregate row: %#v", row)
+	}
+}
+
+func TestSQLConstraintEdgeCases(t *testing.T) {
+	e := NewExecutor(map[string]*kv.Table{})
+	if _, err := e.Execute("CREATE TABLE users (email STRING UNIQUE, name STRING NOT NULL)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Execute("INSERT INTO users (email, name) VALUES (NULL, 'Ada')"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Execute("INSERT INTO users (email, name) VALUES (NULL, 'Bob')"); err != nil {
+		t.Fatalf("nullable UNIQUE should allow multiple NULLs: %v", err)
+	}
+	if _, err := e.Execute("INSERT INTO users (email, name) VALUES ('a@example.com', NULL)"); err == nil {
+		t.Fatal("expected NOT NULL violation")
+	}
+	if _, err := e.Execute("INSERT INTO users (email, name) VALUES ('a@example.com', 'Cid')"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Execute("INSERT INTO users (email, name) VALUES ('a@example.com', 'Drew')"); err == nil {
+		t.Fatal("expected UNIQUE violation")
+	}
+	if _, err := e.Execute("ALTER TABLE users RENAME COLUMN email TO address"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Execute("INSERT INTO users (address, name) VALUES ('a@example.com', 'Eve')"); err == nil {
+		t.Fatal("renamed UNIQUE constraint was not preserved")
+	}
+	if _, err := e.Execute("ALTER TABLE users DROP COLUMN address"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Execute("INSERT INTO users (name) VALUES ('Fay')"); err != nil {
+		t.Fatalf("dropping constrained column left stale constraint: %v", err)
+	}
+}

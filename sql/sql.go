@@ -599,6 +599,22 @@ func (p *parser) parsePrimary() (*Condition, error) {
 	}
 	col := p.cur().Lexeme
 	p.take()
+	if strings.EqualFold(p.cur().Lexeme, "IS") {
+		p.take()
+		negated := false
+		if strings.EqualFold(p.cur().Lexeme, "NOT") {
+			negated = true
+			p.take()
+		}
+		if !strings.EqualFold(p.cur().Lexeme, "NULL") {
+			return nil, fmt.Errorf("expected NULL after IS")
+		}
+		p.take()
+		if negated {
+			return &Condition{Column: col, Operator: "IS NOT NULL"}, nil
+		}
+		return &Condition{Column: col, Operator: "IS NULL"}, nil
+	}
 	op := p.cur().Lexeme
 	if p.cur().Type != Equal && p.cur().Type != NotEqual && p.cur().Type != Less && p.cur().Type != Greater && p.cur().Type != LessEqual && p.cur().Type != GreaterEqual {
 		return nil, fmt.Errorf("expected comparison operator")
@@ -1294,10 +1310,17 @@ func match(w *Condition, r kv.Row) bool {
 	if w.Logic == "OR" {
 		return match(w.Left, r) || match(w.Right, r)
 	}
-	if lookup(r, w.Column) == nil || w.Value == nil {
+	value := lookup(r, w.Column)
+	if w.Operator == "IS NULL" {
+		return value == nil
+	}
+	if w.Operator == "IS NOT NULL" {
+		return value != nil
+	}
+	if value == nil || w.Value == nil {
 		return false
 	}
-	cmp := compare(lookup(r, w.Column), w.Value)
+	cmp := compare(value, w.Value)
 	switch w.Operator {
 	case "=":
 		return cmp == 0
@@ -1474,6 +1497,16 @@ func (e *Executor) alter(q AlterTable) (Result, error) {
 		return Result{}, err
 	}
 	s := t.Schema()
+	s.Columns = append([]kv.Column(nil), s.Columns...)
+	if s.Constraints == nil {
+		s.Constraints = map[string]kv.ColumnConstraint{}
+	} else {
+		constraints := make(map[string]kv.ColumnConstraint, len(s.Constraints))
+		for name, constraint := range s.Constraints {
+			constraints[name] = constraint
+		}
+		s.Constraints = constraints
+	}
 	switch q.Action {
 	case "add":
 		s.Columns = append(s.Columns, q.Column)
@@ -1485,11 +1518,16 @@ func (e *Executor) alter(q AlterTable) (Result, error) {
 			}
 		}
 		s.Columns = c
+		delete(s.Constraints, q.Name)
 	case "rename":
 		for i := range s.Columns {
 			if strings.EqualFold(s.Columns[i].Name, q.Name) {
 				s.Columns[i].Name = q.NewName
 			}
+		}
+		if constraint, ok := s.Constraints[q.Name]; ok {
+			delete(s.Constraints, q.Name)
+			s.Constraints[q.NewName] = constraint
 		}
 	}
 	if err = t.Alter(s); err != nil {
@@ -1627,7 +1665,7 @@ func (e *Executor) insert(q Insert) (Result, error) {
 			}
 			found := false
 			for _, rr := range e.refRows(ref) {
-				if rr[cc.References.Column] == r[c.Name] {
+				if rr[cc.References.Column] != nil && compare(rr[cc.References.Column], r[c.Name]) == 0 {
 					found = true
 					break
 				}
@@ -1782,7 +1820,7 @@ func (e *Executor) selectRows(q Select) (Result, error) {
 	for _, r := range filtered {
 		selected := kv.Row{}
 		for _, c := range cols {
-			if lookup(r, c) == nil {
+			if _, ok := lookupColumn(r, c); !ok {
 				return Result{}, fmt.Errorf("unknown column %q", c)
 			}
 			selected[c] = lookup(r, c)
@@ -1793,13 +1831,19 @@ func (e *Executor) selectRows(q Select) (Result, error) {
 }
 
 func lookup(r kv.Row, name string) any {
+	v, _ := lookupColumn(r, name)
+	return v
+}
+
+func lookupColumn(r kv.Row, name string) (any, bool) {
 	if v, ok := r[name]; ok {
-		return v
+		return v, true
 	}
 	if i := strings.Index(name, "."); i >= 0 {
-		return r[name[i+1:]]
+		v, ok := r[name[i+1:]]
+		return v, ok
 	}
-	return nil
+	return nil, false
 }
 
 func isAggregate(s string) bool {

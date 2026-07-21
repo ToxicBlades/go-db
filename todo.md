@@ -37,8 +37,9 @@ indexes are not reconstructed from durable catalog metadata on restart.
 
 ### SQL and query execution
 
-- [ ] Add negative numeric literals, `IS NULL`/`IS NOT NULL`, and explicit
-  NULL semantics for comparisons and boolean expressions.
+- [ ] Add negative numeric literals.
+- [x] Add `IS NULL`/`IS NOT NULL` and explicit NULL semantics for comparisons
+  and boolean expressions.
 - [ ] Add `UPDATE ... FROM`/more join forms only if needed; otherwise document
   the intentionally small SQL surface and test unsupported syntax clearly.
 - [ ] Replace the nested-loop join with a hash join or an indexed join when a

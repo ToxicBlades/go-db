@@ -91,6 +91,10 @@ FROM users
 WHERE active = true AND (id >= 1 OR name != 'Bob');
 ```
 
+Use `IS NULL` and `IS NOT NULL` to test missing values. Comparisons with NULL
+using `=`, `!=`, or an ordering operator do not match any row. NULL values are
+also ignored by non-`COUNT(*)` aggregates.
+
 The comparison is performed against the displayed value of the stored value.
 
 #### Ordering and pagination
