@@ -20,7 +20,7 @@ func FuzzWALReplay(f *testing.F) {
 			t.Skip()
 		}
 		path := t.TempDir() + "/fuzz.db"
-		if err := os.WriteFile(path+".wal", data, 0600); err != nil {
+		if err := os.WriteFile(path+".wal", data, 0o600); err != nil {
 			t.Fatal(err)
 		}
 		w, err := openWAL(path)

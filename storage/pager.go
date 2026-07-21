@@ -20,7 +20,7 @@ type Pager struct {
 // Opens (or creates) the database file at path and returns a Pager
 // ready to allocate, read, and write pages.
 func Open(path string) (*Pager, error) {
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("opening db file: %w", err)
 	}

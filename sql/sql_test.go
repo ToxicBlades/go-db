@@ -1,9 +1,10 @@
 package sql
 
 import (
-	"mydb/kv"
 	"strings"
 	"testing"
+
+	"mydb/kv"
 )
 
 func TestSQLInsertSelectWhere(t *testing.T) {

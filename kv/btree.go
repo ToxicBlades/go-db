@@ -59,6 +59,7 @@ func childIndex(keys [][]byte, key []byte) int {
 	}
 	return i
 }
+
 func keyIndex(keys [][]byte, key []byte) int {
 	lo, hi := 0, len(keys)
 	for lo < hi {
@@ -86,6 +87,7 @@ func (t *btree) put(key, value []byte) {
 	}
 	t.insertNonFull(t.root, key, value)
 }
+
 func (t *btree) splitChild(parent *btreeNode, i int) {
 	old := parent.children[i]
 	mid := len(old.keys) / 2
@@ -112,6 +114,7 @@ func (t *btree) splitChild(parent *btreeNode, i int) {
 	copy(parent.children[i+2:], parent.children[i+1:])
 	parent.children[i+1] = right
 }
+
 func (t *btree) insertNonFull(n *btreeNode, key, value []byte) {
 	if n.leaf {
 		i := keyIndex(n.keys, key)
@@ -165,103 +168,4 @@ func (t *btree) delete(key []byte) bool {
 		t.put(k, values[i])
 	}
 	return true
-}
-func (t *btree) deleteNode(n *btreeNode, key []byte) bool {
-	if n.leaf {
-		i := keyIndex(n.keys, key)
-		if i == len(n.keys) || !bytes.Equal(n.keys[i], key) {
-			return false
-		}
-		copy(n.keys[i:], n.keys[i+1:])
-		n.keys = n.keys[:len(n.keys)-1]
-		copy(n.values[i:], n.values[i+1:])
-		n.values = n.values[:len(n.values)-1]
-		return true
-	}
-	if len(n.children) == 0 {
-		return false
-	}
-	i := childIndex(n.keys, key)
-	if i >= len(n.children) {
-		i = len(n.children) - 1
-	}
-	if !t.deleteNode(n.children[i], key) {
-		return false
-	}
-	min := (btreeOrder + 1) / 2
-	if len(n.children[i].keys) < min {
-		t.rebalance(n, i)
-	}
-	// Refresh separators after a deletion or merge.
-	for j := range n.keys {
-		if len(n.children[j+1].keys) > 0 {
-			n.keys[j] = copyKey(firstKey(n.children[j+1]))
-		}
-	}
-	return true
-}
-func firstKey(n *btreeNode) []byte {
-	for !n.leaf {
-		i := 0
-		for i < len(n.children) && len(n.children[i].keys) == 0 {
-			i++
-		}
-		if i == len(n.children) {
-			return nil
-		}
-		n = n.children[i]
-	}
-	if len(n.keys) == 0 {
-		return nil
-	}
-	return n.keys[0]
-}
-func (t *btree) rebalance(p *btreeNode, i int) {
-	min := (btreeOrder + 1) / 2
-	c := p.children[i]
-	if i > 0 && len(p.children[i-1].keys) > min {
-		l := p.children[i-1]
-		if c.leaf {
-			c.keys = append([][]byte{l.keys[len(l.keys)-1]}, c.keys...)
-			c.values = append([][]byte{l.values[len(l.values)-1]}, c.values...)
-			l.keys = l.keys[:len(l.keys)-1]
-			l.values = l.values[:len(l.values)-1]
-		} else {
-			c.children = append([]*btreeNode{l.children[len(l.children)-1]}, c.children...)
-			l.children = l.children[:len(l.children)-1]
-		}
-		return
-	}
-	if i+1 < len(p.children) && len(p.children[i+1].keys) > min {
-		r := p.children[i+1]
-		if c.leaf {
-			c.keys = append(c.keys, r.keys[0])
-			c.values = append(c.values, r.values[0])
-			r.keys = r.keys[1:]
-			r.values = r.values[1:]
-		} else {
-			c.children = append(c.children, r.children[0])
-			r.children = r.children[1:]
-		}
-		return
-	}
-	if i > 0 {
-		t.merge(p, i-1)
-	} else {
-		t.merge(p, i)
-	}
-}
-func (t *btree) merge(p *btreeNode, i int) {
-	l, r := p.children[i], p.children[i+1]
-	if l.leaf {
-		l.keys = append(l.keys, r.keys...)
-		l.values = append(l.values, r.values...)
-		l.next = r.next
-	} else {
-		l.children = append(l.children, r.children...)
-	}
-	copy(p.children[i+1:], p.children[i+2:])
-	p.children = p.children[:len(p.children)-1]
-	copy(p.keys[i:], p.keys[i+1:])
-	p.keys = p.keys[:len(p.keys)-1]
 }

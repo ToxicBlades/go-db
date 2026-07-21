@@ -36,7 +36,7 @@ func (w *wal) size() (int64, error) {
 }
 
 func openWAL(path string) (*wal, error) {
-	f, err := os.OpenFile(path+".wal", os.O_CREATE|os.O_RDWR|os.O_APPEND, 0644)
+	f, err := os.OpenFile(path+".wal", os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("opening WAL: %w", err)
 	}

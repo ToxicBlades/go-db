@@ -164,8 +164,10 @@ func countParameters(tokens []Token) int {
 	return n
 }
 
-type Statement interface{ isStatement() }
-type Explain struct{ Statement Statement }
+type (
+	Statement interface{ isStatement() }
+	Explain   struct{ Statement Statement }
+)
 
 func (Explain) isStatement() {}
 
@@ -429,6 +431,7 @@ func (p *parser) createStmt() (Statement, error) {
 	}
 	return CreateTable{name, cs, constraints}, nil
 }
+
 func (p *parser) dropStmt() (Statement, error) {
 	p.take()
 	if strings.EqualFold(p.cur().Lexeme, "TABLE") {
@@ -439,6 +442,7 @@ func (p *parser) dropStmt() (Statement, error) {
 	}
 	return nil, fmt.Errorf("expected TABLE")
 }
+
 func (p *parser) alterStmt() (Statement, error) {
 	p.take()
 	if e := p.want("TABLE"); e != nil {
@@ -450,7 +454,9 @@ func (p *parser) alterStmt() (Statement, error) {
 	p.take()
 	switch action {
 	case "ADD":
-		p.want("COLUMN")
+		if e := p.want("COLUMN"); e != nil {
+			return nil, e
+		}
 		n := p.cur().Lexeme
 		p.take()
 		ty := p.cur().Lexeme
@@ -474,12 +480,16 @@ func (p *parser) alterStmt() (Statement, error) {
 		}
 		return AlterTable{Table: t, Action: "add", Column: kv.Column{Name: n, Type: ct}}, nil
 	case "DROP":
-		p.want("COLUMN")
+		if e := p.want("COLUMN"); e != nil {
+			return nil, e
+		}
 		n := p.cur().Lexeme
 		p.take()
 		return AlterTable{Table: t, Action: "drop", Name: n}, nil
 	case "RENAME":
-		p.want("COLUMN")
+		if e := p.want("COLUMN"); e != nil {
+			return nil, e
+		}
 		n := p.cur().Lexeme
 		p.take()
 		if e := p.want("TO"); e != nil {
@@ -491,6 +501,7 @@ func (p *parser) alterStmt() (Statement, error) {
 	}
 	return nil, fmt.Errorf("unsupported ALTER action")
 }
+
 func (p *parser) updateStmt() (Statement, error) {
 	p.take()
 	t := p.cur().Lexeme
@@ -522,6 +533,7 @@ func (p *parser) updateStmt() (Statement, error) {
 	}
 	return Update{t, set, w}, nil
 }
+
 func (p *parser) deleteStmt() (Statement, error) {
 	p.take()
 	if e := p.want("FROM"); e != nil {
@@ -532,6 +544,7 @@ func (p *parser) deleteStmt() (Statement, error) {
 	w, e := p.condition()
 	return Delete{t, w}, e
 }
+
 func (p *parser) condition() (*Condition, error) {
 	if !strings.EqualFold(p.cur().Lexeme, "WHERE") {
 		return nil, nil
@@ -539,6 +552,7 @@ func (p *parser) condition() (*Condition, error) {
 	p.take()
 	return p.parseOr()
 }
+
 func (p *parser) parseOr() (*Condition, error) {
 	left, err := p.parseAnd()
 	if err != nil {
@@ -554,6 +568,7 @@ func (p *parser) parseOr() (*Condition, error) {
 	}
 	return left, nil
 }
+
 func (p *parser) parseAnd() (*Condition, error) {
 	left, err := p.parsePrimary()
 	if err != nil {
@@ -569,6 +584,7 @@ func (p *parser) parseAnd() (*Condition, error) {
 	}
 	return left, nil
 }
+
 func (p *parser) parsePrimary() (*Condition, error) {
 	if p.cur().Type == LParen {
 		p.take()
@@ -601,6 +617,7 @@ func (p *parser) take() {
 		p.p++
 	}
 }
+
 func (p *parser) want(s string) error {
 	if !strings.EqualFold(p.cur().Lexeme, s) {
 		return fmt.Errorf("expected %s, got %s", s, p.cur().Lexeme)
@@ -608,6 +625,7 @@ func (p *parser) want(s string) error {
 	p.take()
 	return nil
 }
+
 func (p *parser) selectStmt() (Statement, error) {
 	p.take()
 	var cols []string
@@ -709,10 +727,12 @@ func (p *parser) selectStmt() (Statement, error) {
 	}
 	return q, nil
 }
+
 func isAggregateName(s string) bool {
 	u := strings.ToUpper(s)
 	return u == "COUNT" || u == "SUM" || u == "AVG" || u == "MIN" || u == "MAX"
 }
+
 func (p *parser) insertStmt() (Statement, error) {
 	p.take()
 	if e := p.want("INTO"); e != nil {
@@ -762,6 +782,7 @@ func (p *parser) insertStmt() (Statement, error) {
 	}
 	return Insert{table, cols, vals}, nil
 }
+
 func value(t Token) (any, error) {
 	switch t.Type {
 	case Parameter:
@@ -818,8 +839,10 @@ type transaction struct {
 	tables []transactionTableState
 }
 
-var nextTransactionID uint64
-var nextCommitSequence uint64
+var (
+	nextTransactionID  uint64
+	nextCommitSequence uint64
+)
 
 type Executor struct {
 	Tables map[string]*kv.Table
@@ -892,6 +915,7 @@ func countStatementParameters(s Statement) int {
 	walk(s)
 	return max + 1
 }
+
 func bindStatement(s Statement, args []any) (Statement, error) {
 	bind := func(v any) any {
 		if p, ok := v.(parameterValue); ok {
@@ -1045,18 +1069,6 @@ func (e *Executor) recordWrite(t *kv.Table, key string, row kv.Row, deleted bool
 	}
 }
 
-func (e *Executor) snapshotOf(t *kv.Table) (kv.Snapshot, bool) {
-	if e.tx == nil {
-		return 0, false
-	}
-	for _, state := range e.tx.tables {
-		if state.t == t {
-			return state.readAt, true
-		}
-	}
-	return 0, false
-}
-
 // InTransaction reports whether this executor owns an open explicit
 // transaction. The server uses it to keep that transaction isolated.
 func (e *Executor) InTransaction() bool { return e.inTransaction() }
@@ -1128,6 +1140,7 @@ func (e *Executor) rollback() (Result, error) {
 	e.tx = nil
 	return Result{}, nil
 }
+
 func splitStatements(s string) []string {
 	var out []string
 	start := 0
@@ -1153,6 +1166,7 @@ func splitStatements(s string) []string {
 	}
 	return out
 }
+
 func (e *Executor) executeOne(input string) (Result, error) {
 	s, err := Parse(input)
 	if err != nil {
@@ -1160,6 +1174,7 @@ func (e *Executor) executeOne(input string) (Result, error) {
 	}
 	return e.executeStatement(s)
 }
+
 func (e *Executor) executeStatement(s Statement) (Result, error) {
 	switch q := s.(type) {
 	case Begin:
@@ -1260,6 +1275,7 @@ func mapKeys(m map[string]any) string {
 	sort.Strings(keys)
 	return strings.Join(keys, ", ")
 }
+
 func match(w *Condition, r kv.Row) bool {
 	if w == nil {
 		return true
@@ -1290,6 +1306,7 @@ func match(w *Condition, r kv.Row) bool {
 	}
 	return false
 }
+
 func compare(a, b any) int {
 	if af, ok := number(a); ok {
 		if bf, ok := number(b); ok {
@@ -1344,6 +1361,7 @@ func compare(a, b any) int {
 	}
 	return 0
 }
+
 func number(v any) (float64, bool) {
 	switch x := v.(type) {
 	case int:
@@ -1353,6 +1371,7 @@ func number(v any) (float64, bool) {
 	}
 	return 0, false
 }
+
 func (e *Executor) update(q Update) (Result, error) {
 	t, err := e.table(q.Table)
 	if err != nil {
@@ -1399,6 +1418,7 @@ func (e *Executor) update(q Update) (Result, error) {
 	}
 	return Result{Affected: n}, err
 }
+
 func (e *Executor) delete(q Delete) (Result, error) {
 	t, err := e.table(q.Table)
 	if err != nil {
@@ -1424,6 +1444,7 @@ func (e *Executor) delete(q Delete) (Result, error) {
 	}
 	return Result{Affected: n}, err
 }
+
 func (e *Executor) drop(q DropTable) (Result, error) {
 	n := strings.ToLower(q.Table)
 	t, ok := e.Tables[n]
@@ -1433,6 +1454,7 @@ func (e *Executor) drop(q DropTable) (Result, error) {
 	delete(e.Tables, n)
 	return Result{Affected: 1}, t.Close()
 }
+
 func (e *Executor) alter(q AlterTable) (Result, error) {
 	t, err := e.table(q.Table)
 	if err != nil {
@@ -1462,6 +1484,7 @@ func (e *Executor) alter(q AlterTable) (Result, error) {
 	}
 	return Result{Affected: 1}, nil
 }
+
 func (e *Executor) create(q CreateTable) (Result, error) {
 	n := strings.ToLower(q.Table)
 	if e.Tables[n] != nil {
@@ -1509,6 +1532,7 @@ func (e *Executor) listTables() (Result, error) {
 	})
 	return result, nil
 }
+
 func (e *Executor) table(name string) (*kv.Table, error) {
 	t := e.Tables[strings.ToLower(name)]
 	if t == nil {
@@ -1516,6 +1540,7 @@ func (e *Executor) table(name string) (*kv.Table, error) {
 	}
 	return t, nil
 }
+
 func (e *Executor) insert(q Insert) (Result, error) {
 	t, err := e.table(q.Table)
 	if err != nil {
@@ -1587,6 +1612,7 @@ func (e *Executor) insert(q Insert) (Result, error) {
 	}
 	return Result{Affected: 1}, nil
 }
+
 func coerceValue(v any, typ kv.ColumnType) (any, error) {
 	if v == nil {
 		return nil, nil
@@ -1689,7 +1715,6 @@ func (e *Executor) selectRows(q Select) (Result, error) {
 			if lookup(r, c) == nil {
 				return Result{}, fmt.Errorf("unknown column %q", c)
 			}
-			break
 		}
 	}
 	aggregate := false
@@ -1734,6 +1759,7 @@ func (e *Executor) selectRows(q Select) (Result, error) {
 	}
 	return applyPagingAndOrder(out, q)
 }
+
 func lookup(r kv.Row, name string) any {
 	if v, ok := r[name]; ok {
 		return v
@@ -1748,6 +1774,7 @@ func isAggregate(s string) bool {
 	u := strings.ToUpper(s)
 	return strings.HasPrefix(u, "COUNT(") || strings.HasPrefix(u, "SUM(") || strings.HasPrefix(u, "AVG(") || strings.HasPrefix(u, "MIN(") || strings.HasPrefix(u, "MAX(")
 }
+
 func groupKey(cols []string, r kv.Row) string {
 	var b strings.Builder
 	for _, c := range cols {
@@ -1755,6 +1782,7 @@ func groupKey(cols []string, r kv.Row) string {
 	}
 	return b.String()
 }
+
 func aggregateRow(cols, groups []string, rows []kv.Row) (kv.Row, error) {
 	out := kv.Row{}
 	for _, c := range groups {
@@ -1819,6 +1847,7 @@ func aggregateRow(cols, groups []string, rows []kv.Row) (kv.Row, error) {
 	}
 	return out, nil
 }
+
 func allInts(v []any) bool {
 	for _, x := range v {
 		if _, ok := x.(int); !ok {
@@ -1827,6 +1856,7 @@ func allInts(v []any) bool {
 	}
 	return true
 }
+
 func applyPagingAndOrder(out Result, q Select) (Result, error) {
 	if q.OrderBy != "" {
 		sort.SliceStable(out.Rows, func(i, j int) bool {

@@ -61,7 +61,7 @@ func serverCommand(args []string) {
 	seedPath := flags.String("seed", "seed.sql", "SQL file to run before starting")
 	username := flags.String("user", "", "TCP username (enables authentication)")
 	password := flags.String("password", "", "TCP password (enables authentication)")
-	flags.Parse(args)
+	_ = flags.Parse(args)
 	if (*username == "") != (*password == "") {
 		fatal("server", fmt.Errorf("--user and --password must be provided together"))
 	}
@@ -105,7 +105,7 @@ func sqlCommand(args []string) {
 	addr := flags.String("addr", ":5433", "SQL server address")
 	username := flags.String("user", "", "TCP username")
 	password := flags.String("password", "", "TCP password")
-	flags.Parse(args)
+	_ = flags.Parse(args)
 	if (*username == "") != (*password == "") {
 		fatal("sql", fmt.Errorf("--user and --password must be provided together"))
 	}

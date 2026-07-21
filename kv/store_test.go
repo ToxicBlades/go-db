@@ -292,7 +292,7 @@ func TestWALDiscardsUncommittedTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Remove only the commit marker, simulating a crash before transaction commit.
-	f, err := os.OpenFile(path+".wal", os.O_RDWR, 0644)
+	f, err := os.OpenFile(path+".wal", os.O_RDWR, 0o644)
 	if err != nil {
 		t.Fatal(err)
 	}

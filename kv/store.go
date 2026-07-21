@@ -429,7 +429,7 @@ func (s *Store) saveIndex() error {
 		return err
 	}
 	tmp := s.indexPath + ".tmp"
-	if err := os.WriteFile(tmp, data.Bytes(), 0644); err != nil {
+	if err := os.WriteFile(tmp, data.Bytes(), 0o644); err != nil {
 		return fmt.Errorf("write index: %w", err)
 	}
 	if err := os.Rename(tmp, s.indexPath); err != nil {

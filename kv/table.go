@@ -35,11 +35,13 @@ type Column struct {
 	Type ColumnType
 }
 
-type Reference struct{ Table, Column string }
-type ColumnConstraint struct {
-	NotNull, Unique bool
-	References      *Reference
-}
+type (
+	Reference        struct{ Table, Column string }
+	ColumnConstraint struct {
+		NotNull, Unique bool
+		References      *Reference
+	}
+)
 
 // Schema describes the columns a Table accepts.
 type Schema struct {
@@ -235,6 +237,7 @@ func (t *Table) indexRow(key string, row Row) {
 		t.secondary[c.Name][v][key] = struct{}{}
 	}
 }
+
 func (t *Table) unindexRow(key string, row Row) {
 	for _, c := range t.schema.Columns[1:] {
 		v := indexValue(row[c.Name])

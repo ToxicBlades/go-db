@@ -52,3 +52,7 @@ syntax, SQL semantics, supported commands, or SQL examples:
 
 For unrelated changes, do not edit Markdown unnecessarily. Document only
 behavior that actually exists in the code.
+
+## Go quality checks
+
+After making changes, run `make fmt` to format Go files with gofumpt and `make lint` to lint the repository with golangci-lint. Include any resulting formatting changes in the work, and resolve lint errors before completing the task.
