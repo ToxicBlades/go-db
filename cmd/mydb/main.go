@@ -1,18 +1,5 @@
-// Command mydb is a tiny interactive shell for the key-value store.
-// It's meant as a way to actually *see* the engine work, not a
-// production interface.
-//
-// Usage:
-//
-//	go run ./cmd/mydb mydb.db
-//
-// Then at the prompt:
-//
-//	put name alice
-//	get name
-//	delete name
-//	get name
-//	exit
+// Command mydb provides the SQL client, database server, and backup/restore
+// commands.
 package main
 
 import (
@@ -45,109 +32,10 @@ func main() {
 		return
 	}
 	if len(os.Args) < 2 {
-		fmt.Println("usage: mydb <path-to-db-file> | mydb server [options] | mydb sql [options]")
+		fmt.Println("usage: mydb server [options] | mydb sql [options] | mydb backup|restore <source> <destination>")
 		os.Exit(1)
 	}
-
-	store, err := kv.Open(os.Args[1])
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error opening store: %v\n", err)
-		os.Exit(1)
-	}
-	defer store.Close()
-
-	// Ctrl-C normally terminates the process immediately, which would skip
-	// Store.Close and leave buffered pages unwritten. Handle it like `exit`.
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(signals)
-	go func() {
-		<-signals
-		if err := store.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "error closing store: %v\n", err)
-			os.Exit(1)
-		}
-		os.Exit(0)
-	}()
-
-	fmt.Printf("mydb - connected to %s\n", os.Args[1])
-	fmt.Println("commands: put <key> <value> | get <key> | delete <key> | stats | exit")
-
-	scanner := bufio.NewScanner(os.Stdin)
-	for {
-		fmt.Print("> ")
-		if !scanner.Scan() {
-			break
-		}
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		parts := strings.SplitN(line, " ", 3)
-		cmd := parts[0]
-
-		switch cmd {
-		case "put":
-			if len(parts) < 3 {
-				fmt.Println("usage: put <key> <value>")
-				continue
-			}
-			if err := store.Put([]byte(parts[1]), []byte(parts[2])); err != nil {
-				fmt.Printf("error: %v\n", err)
-				continue
-			}
-			fmt.Println("OK")
-
-		case "get":
-			if len(parts) < 2 {
-				fmt.Println("usage: get <key>")
-				continue
-			}
-			val, found, err := store.Get([]byte(parts[1]))
-			if err != nil {
-				fmt.Printf("error: %v\n", err)
-				continue
-			}
-			if !found {
-				fmt.Println("(not found)")
-				continue
-			}
-			fmt.Println(string(val))
-
-		case "delete":
-			if len(parts) < 2 {
-				fmt.Println("usage: delete <key>")
-				continue
-			}
-			if err := store.Delete([]byte(parts[1])); err != nil {
-				fmt.Printf("error: %v\n", err)
-				continue
-			}
-			fmt.Println("OK")
-
-		case "stats":
-			stats, err := store.Stats()
-			if err != nil {
-				fmt.Printf("error: %v\n", err)
-				continue
-			}
-			total := stats.BufferPool.Hits + stats.BufferPool.Misses
-			hitRate := 0.0
-			if total > 0 {
-				hitRate = float64(stats.BufferPool.Hits) / float64(total) * 100
-			}
-			fmt.Printf("page_count=%d wal_size=%d buffer_pool_hits=%d buffer_pool_misses=%d buffer_pool_hit_rate=%.2f%% cached_pages=%d dirty_pages=%d\n",
-				stats.PageCount, stats.WALSize, stats.BufferPool.Hits, stats.BufferPool.Misses, hitRate,
-				stats.BufferPool.CachedPages, stats.BufferPool.DirtyPages)
-
-		case "exit", "quit":
-			return
-
-		default:
-			fmt.Printf("unknown command: %s\n", cmd)
-		}
-	}
+	os.Exit(1)
 }
 
 func fileCommand(command string, args []string) {

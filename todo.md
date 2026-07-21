@@ -8,5 +8,4 @@
 - **Secondary indexes** — right now it looks like the key column is the only indexed path; a secondary index structure would let `WHERE` on non-key columns be fast instead of a full scan.
 
 ## Server / client
-- **Prepared statements / parameterized queries** — avoids re-parsing and is safer than string-building SQL.
 - **Authentication** on the TCP server.

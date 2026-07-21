@@ -18,16 +18,13 @@ working storage, indexing, typed tables, SQL, durability, and a TCP interface.
   `SHOW TABLES`/`LIST TABLES` (`sql/`).
 - Backup and restore commands that snapshot the database file and its WAL sidecar (`kv/`, `cmd/mydb/`).
 - A line-oriented TCP server accepting plain SQL or JSON requests (`server/`).
-- Interactive key/value and SQL clients (`cmd/mydb/`).
-
-The interactive key/value client also supports `stats`, which reports page
-count, WAL size, buffer-pool hit rate, and cached/dirty page counts.
+- An interactive SQL client (`cmd/mydb/`).
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    CLI[cmd/mydb\ninteractive clients] --> TCP[server\nline-oriented TCP]
+    CLI[cmd/mydb\ninteractive SQL client] --> TCP[server\nline-oriented TCP]
     TCP --> SQL[sql\nlexer, parser, executor]
     SQL --> TABLE[kv.Table\ntyped rows and schemas]
     TABLE --> STORE[kv.Store\nkey/value records]
@@ -106,14 +103,11 @@ The SQL client prints result sets as aligned tables:
 +----+-------+--------+
 ```
 
-The key/value shell is available with `go run ./cmd/mydb path/to/file.db` and
-supports `put`, `get`, `delete`, and `exit`.
-
 ## Project layout
 
 ```text
 mydb/
-├── cmd/mydb/main.go       # key/value shell, SQL client, and server command
+├── cmd/mydb/main.go       # SQL client, server, and backup/restore commands
 ├── kv/
 │   ├── btree.go           # in-memory B+Tree index
 │   ├── store.go           # append-only records and store operations
