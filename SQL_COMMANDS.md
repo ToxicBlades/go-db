@@ -67,7 +67,30 @@ WHERE active = true AND (id >= 1 OR name != 'Bob');
 ```
 
 The comparison is performed against the displayed value of the stored value.
-There is no support for ordering, grouping, or joins.
+
+#### Ordering and pagination
+
+`ORDER BY` sorts by a selected column (ascending by default; use `DESC` for
+descending order). `LIMIT` restricts the result count and `OFFSET` skips rows:
+
+```sql
+SELECT id, name FROM users ORDER BY id DESC LIMIT 10 OFFSET 5;
+```
+
+#### Aggregates and grouping
+
+`COUNT`, `SUM`, `AVG`, `MIN`, and `MAX` are supported. Aggregate expressions
+are returned using their expression as the result column name:
+
+```sql
+SELECT active, COUNT(*), AVG(id)
+FROM users
+GROUP BY active
+ORDER BY active;
+```
+
+`SUM` and `AVG` require numeric columns. `COUNT(*)` counts rows; other
+aggregates ignore NULL values. Joins are not supported.
 
 ### `INSERT`
 

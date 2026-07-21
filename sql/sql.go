@@ -125,7 +125,7 @@ func Lex(input string) ([]Token, error) {
 		word := input[start:i]
 		upper := strings.ToUpper(word)
 		typ := Identifier
-		if upper == "SELECT" || upper == "FROM" || upper == "WHERE" || upper == "INSERT" || upper == "INTO" || upper == "VALUES" || upper == "SHOW" || upper == "TABLES" || upper == "LIST" || upper == "CREATE" || upper == "TABLE" || upper == "ALTER" || upper == "ADD" || upper == "COLUMN" || upper == "DROP" || upper == "RENAME" || upper == "TO" || upper == "UPDATE" || upper == "SET" || upper == "DELETE" || upper == "AND" || upper == "OR" || upper == "EXPLAIN" {
+		if upper == "SELECT" || upper == "FROM" || upper == "WHERE" || upper == "INSERT" || upper == "INTO" || upper == "VALUES" || upper == "SHOW" || upper == "TABLES" || upper == "LIST" || upper == "CREATE" || upper == "TABLE" || upper == "ALTER" || upper == "ADD" || upper == "COLUMN" || upper == "DROP" || upper == "RENAME" || upper == "TO" || upper == "UPDATE" || upper == "SET" || upper == "DELETE" || upper == "AND" || upper == "OR" || upper == "EXPLAIN" || upper == "ORDER" || upper == "BY" || upper == "ASC" || upper == "DESC" || upper == "LIMIT" || upper == "OFFSET" || upper == "GROUP" || upper == "COUNT" || upper == "SUM" || upper == "AVG" || upper == "MIN" || upper == "MAX" {
 			typ = Keyword
 		}
 		if upper == "TRUE" || upper == "FALSE" {
@@ -160,6 +160,11 @@ type Select struct {
 	Columns []string
 	Table   string
 	Where   *Condition
+	OrderBy string
+	Desc    bool
+	Limit   int
+	Offset  int
+	GroupBy []string
 }
 
 func (Select) isStatement() {}
@@ -559,7 +564,17 @@ func (p *parser) selectStmt() (Statement, error) {
 	p.take()
 	var cols []string
 	for {
-		if p.cur().Lexeme == "*" {
+		if isAggregateName(p.cur().Lexeme) && p.t[p.p+1].Type == LParen {
+			fn := strings.ToUpper(p.cur().Lexeme)
+			p.take()
+			p.take()
+			arg := p.cur().Lexeme
+			p.take()
+			if e := p.want(")"); e != nil {
+				return nil, e
+			}
+			cols = append(cols, fn+"("+arg+")")
+		} else if p.cur().Lexeme == "*" {
 			cols = append(cols, "*")
 			p.take()
 		} else {
@@ -580,7 +595,56 @@ func (p *parser) selectStmt() (Statement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return Select{cols, table, w}, nil
+	q := Select{Columns: cols, Table: table, Where: w, Limit: -1}
+	if strings.EqualFold(p.cur().Lexeme, "GROUP") {
+		p.take()
+		if e := p.want("BY"); e != nil {
+			return nil, e
+		}
+		for {
+			q.GroupBy = append(q.GroupBy, p.cur().Lexeme)
+			p.take()
+			if p.cur().Type != Comma {
+				break
+			}
+			p.take()
+		}
+	}
+	if strings.EqualFold(p.cur().Lexeme, "ORDER") {
+		p.take()
+		if e := p.want("BY"); e != nil {
+			return nil, e
+		}
+		q.OrderBy = p.cur().Lexeme
+		p.take()
+		if strings.EqualFold(p.cur().Lexeme, "ASC") || strings.EqualFold(p.cur().Lexeme, "DESC") {
+			q.Desc = strings.EqualFold(p.cur().Lexeme, "DESC")
+			p.take()
+		}
+	}
+	if strings.EqualFold(p.cur().Lexeme, "LIMIT") {
+		p.take()
+		n, e := value(p.cur())
+		if e != nil {
+			return nil, e
+		}
+		q.Limit = n.(int)
+		p.take()
+	}
+	if strings.EqualFold(p.cur().Lexeme, "OFFSET") {
+		p.take()
+		n, e := value(p.cur())
+		if e != nil {
+			return nil, e
+		}
+		q.Offset = n.(int)
+		p.take()
+	}
+	return q, nil
+}
+func isAggregateName(s string) bool {
+	u := strings.ToUpper(s)
+	return u == "COUNT" || u == "SUM" || u == "AVG" || u == "MIN" || u == "MAX"
 }
 func (p *parser) insertStmt() (Statement, error) {
 	p.take()
@@ -781,6 +845,17 @@ func match(w *Condition, r kv.Row) bool {
 	return false
 }
 func compare(a, b any) int {
+	if af, ok := number(a); ok {
+		if bf, ok := number(b); ok {
+			if af < bf {
+				return -1
+			}
+			if af > bf {
+				return 1
+			}
+			return 0
+		}
+	}
 	if x, ok := a.(int); ok {
 		if y, ok := b.(int); ok {
 			if x < y {
@@ -822,6 +897,15 @@ func compare(a, b any) int {
 		return 1
 	}
 	return 0
+}
+func number(v any) (float64, bool) {
+	switch x := v.(type) {
+	case int:
+		return float64(x), true
+	case float64:
+		return x, true
+	}
+	return 0, false
 }
 func (e *Executor) update(q Update) (Result, error) {
 	t, err := e.table(q.Table)
@@ -1008,11 +1092,51 @@ func (e *Executor) selectRows(q Select) (Result, error) {
 	} else {
 		cols = q.Columns
 	}
-	out := Result{Columns: cols}
+	filtered := rows[:0]
 	for _, r := range rows {
-		if !match(q.Where, r) {
-			continue
+		if match(q.Where, r) {
+			filtered = append(filtered, r)
 		}
+	}
+	for _, c := range q.GroupBy {
+		for _, r := range filtered {
+			if _, ok := r[c]; !ok {
+				return Result{}, fmt.Errorf("unknown column %q", c)
+			}
+			break
+		}
+	}
+	aggregate := false
+	for _, c := range cols {
+		if isAggregate(c) {
+			aggregate = true
+		}
+	}
+	if aggregate || len(q.GroupBy) > 0 {
+		groups := map[string][]kv.Row{}
+		order := []string{}
+		for _, r := range filtered {
+			key := groupKey(q.GroupBy, r)
+			if _, ok := groups[key]; !ok {
+				order = append(order, key)
+			}
+			groups[key] = append(groups[key], r)
+		}
+		if len(order) == 0 && aggregate && len(q.GroupBy) == 0 {
+			order = append(order, "")
+		}
+		out := Result{Columns: cols}
+		for _, key := range order {
+			row, err := aggregateRow(cols, q.GroupBy, groups[key])
+			if err != nil {
+				return Result{}, err
+			}
+			out.Rows = append(out.Rows, row)
+		}
+		return applyPagingAndOrder(out, q)
+	}
+	out := Result{Columns: cols}
+	for _, r := range filtered {
 		selected := kv.Row{}
 		for _, c := range cols {
 			if _, ok := r[c]; !ok {
@@ -1022,5 +1146,113 @@ func (e *Executor) selectRows(q Select) (Result, error) {
 		}
 		out.Rows = append(out.Rows, selected)
 	}
+	return applyPagingAndOrder(out, q)
+}
+
+func isAggregate(s string) bool {
+	u := strings.ToUpper(s)
+	return strings.HasPrefix(u, "COUNT(") || strings.HasPrefix(u, "SUM(") || strings.HasPrefix(u, "AVG(") || strings.HasPrefix(u, "MIN(") || strings.HasPrefix(u, "MAX(")
+}
+func groupKey(cols []string, r kv.Row) string {
+	var b strings.Builder
+	for _, c := range cols {
+		b.WriteString(fmt.Sprintf("%#v|", r[c]))
+	}
+	return b.String()
+}
+func aggregateRow(cols, groups []string, rows []kv.Row) (kv.Row, error) {
+	out := kv.Row{}
+	for _, c := range groups {
+		if len(rows) > 0 {
+			out[c] = rows[0][c]
+		}
+	}
+	for _, expr := range cols {
+		u := strings.ToUpper(expr)
+		open := strings.Index(expr, "(")
+		if open < 0 {
+			if len(rows) == 0 {
+				return nil, fmt.Errorf("group column %q has no rows", expr)
+			}
+			out[expr] = rows[0][expr]
+			continue
+		}
+		col := strings.TrimSpace(expr[open+1 : len(expr)-1])
+		if col == "*" {
+			if strings.HasPrefix(u, "COUNT") {
+				out[expr] = len(rows)
+			}
+			continue
+		}
+		var vals []any
+		for _, r := range rows {
+			if v := r[col]; v != nil {
+				vals = append(vals, v)
+			}
+		}
+		if strings.HasPrefix(u, "COUNT") {
+			out[expr] = len(vals)
+		} else if len(vals) == 0 {
+			out[expr] = nil
+		} else if strings.HasPrefix(u, "MIN") || strings.HasPrefix(u, "MAX") {
+			best := vals[0]
+			for _, v := range vals[1:] {
+				cmp := compare(v, best)
+				if (strings.HasPrefix(u, "MIN") && cmp < 0) || (strings.HasPrefix(u, "MAX") && cmp > 0) {
+					best = v
+				}
+			}
+			out[expr] = best
+		} else {
+			sum := 0.0
+			for _, v := range vals {
+				n, ok := number(v)
+				if !ok {
+					return nil, fmt.Errorf("aggregate %s requires numeric column", expr)
+				}
+				sum += n
+			}
+			if strings.HasPrefix(u, "AVG") {
+				sum /= float64(len(vals))
+			}
+			if strings.HasPrefix(u, "SUM") && allInts(vals) {
+				out[expr] = int(sum)
+			} else {
+				out[expr] = sum
+			}
+		}
+	}
+	return out, nil
+}
+func allInts(v []any) bool {
+	for _, x := range v {
+		if _, ok := x.(int); !ok {
+			return false
+		}
+	}
+	return true
+}
+func applyPagingAndOrder(out Result, q Select) (Result, error) {
+	if q.OrderBy != "" {
+		sort.SliceStable(out.Rows, func(i, j int) bool {
+			c := compare(out.Rows[i][q.OrderBy], out.Rows[j][q.OrderBy])
+			if q.Desc {
+				return c > 0
+			}
+			return c < 0
+		})
+	}
+	start := q.Offset
+	if start < 0 {
+		start = 0
+	}
+	if start > len(out.Rows) {
+		start = len(out.Rows)
+	}
+	end := len(out.Rows)
+	if q.Limit >= 0 && start+q.Limit < end {
+		end = start + q.Limit
+	}
+	out.Rows = out.Rows[start:end]
 	return out, nil
 }

@@ -151,3 +151,32 @@ func TestSQLAutoIncrementID(t *testing.T) {
 		t.Fatalf("unexpected auto-generated IDs: %#v", r.Rows)
 	}
 }
+
+func TestSQLOrderLimitOffsetAndAggregates(t *testing.T) {
+	s, err := kv.Open(t.TempDir() + "/db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl, err := kv.NewTable(s, kv.Schema{Columns: []kv.Column{{Name: "id", Type: kv.IntType}, {Name: "team", Type: kv.StringType}, {Name: "score", Type: kv.IntType}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tbl.Close()
+	e := NewExecutor(map[string]*kv.Table{"scores": tbl})
+	for _, q := range []string{"INSERT INTO scores (id,team,score) VALUES (1,'a',10)", "INSERT INTO scores (id,team,score) VALUES (2,'b',30)", "INSERT INTO scores (id,team,score) VALUES (3,'a',20)", "INSERT INTO scores (id,team,score) VALUES (4,'b',40)"} {
+		if _, err := e.Execute(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, err := e.Execute("SELECT id, score FROM scores ORDER BY score DESC LIMIT 2 OFFSET 1")
+	if err != nil || len(r.Rows) != 2 || r.Rows[0]["id"] != 2 || r.Rows[1]["id"] != 3 {
+		t.Fatalf("ordered page: %#v %v", r, err)
+	}
+	r, err = e.Execute("SELECT team, COUNT(*), SUM(score), AVG(score), MIN(score), MAX(score) FROM scores GROUP BY team ORDER BY team")
+	if err != nil || len(r.Rows) != 2 {
+		t.Fatalf("aggregate result: %#v %v", r, err)
+	}
+	if r.Rows[0]["team"] != "a" || r.Rows[0]["COUNT(*)"] != 2 || r.Rows[0]["SUM(score)"] != 30 || r.Rows[0]["AVG(score)"] != 15.0 || r.Rows[0]["MIN(score)"] != 10 || r.Rows[0]["MAX(score)"] != 20 {
+		t.Fatalf("aggregate row: %#v", r.Rows[0])
+	}
+}

@@ -11,7 +11,8 @@ working storage, indexing, typed tables, SQL, durability, and a TCP interface.
   and write-ahead logging (`kv/`).
 - Typed rows and schemas supporting `int`, `string`, and `bool` (`kv/table.go`).
 - A small SQL lexer, parser, and executor supporting `SELECT`, `INSERT`,
-  boolean and comparison `WHERE` expressions, `EXPLAIN`, and `SHOW TABLES`/`LIST TABLES` (`sql/`).
+  `WHERE`, `ORDER BY`, `LIMIT`/`OFFSET`, grouped aggregates, `EXPLAIN`, and
+  `SHOW TABLES`/`LIST TABLES` (`sql/`).
 - Backup and restore commands that snapshot the database file and its WAL sidecar (`kv/`, `cmd/mydb/`).
 - A line-oriented TCP server accepting plain SQL or JSON requests (`server/`).
 - Interactive key/value and SQL clients (`cmd/mydb/`).
