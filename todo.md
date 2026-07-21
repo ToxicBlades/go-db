@@ -9,7 +9,7 @@
 - [x] **Transaction-owned state** — replace SQL's snapshot/restore transaction
   implementation with a transaction object containing a read timestamp,
   pending writes, and transaction status.
-- [ ] **Snapshot-consistent SQL reads** — make `SELECT`, `UPDATE`, `DELETE`,
+- [x] **Snapshot-consistent SQL reads** — make `SELECT`, `UPDATE`, `DELETE`,
   uniqueness checks, foreign-key checks, and generated IDs read through the
   transaction snapshot.
 - [ ] **Read-your-writes** — overlay a transaction's uncommitted inserts,

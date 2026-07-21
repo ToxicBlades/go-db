@@ -219,6 +219,35 @@ func TestSQLExplicitTransactions(t *testing.T) {
 	}
 }
 
+func TestSQLTransactionReadsSnapshot(t *testing.T) {
+	s, err := kv.Open(t.TempDir() + "/db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl, err := kv.NewTable(s, kv.Schema{Columns: []kv.Column{{Name: "id", Type: kv.IntType}, {Name: "name", Type: kv.StringType}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tbl.Close()
+	if err := tbl.Insert("1", kv.Row{"id": 1, "name": "before"}); err != nil {
+		t.Fatal(err)
+	}
+	e := NewExecutor(map[string]*kv.Table{"users": tbl})
+	if _, err := e.Execute("BEGIN"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tbl.Insert("1", kv.Row{"id": 1, "name": "after"}); err != nil {
+		t.Fatal(err)
+	}
+	r, err := e.Execute("SELECT name FROM users")
+	if err != nil || len(r.Rows) != 1 || r.Rows[0]["name"] != "before" {
+		t.Fatalf("snapshot read = %#v, err=%v", r.Rows, err)
+	}
+	if _, err := e.Execute("ROLLBACK"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSQLTransactionControlErrors(t *testing.T) {
 	e := NewExecutor(nil)
 	if _, err := e.Execute("COMMIT"); err == nil {

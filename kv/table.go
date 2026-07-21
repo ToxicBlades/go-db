@@ -254,7 +254,16 @@ func (t *Table) Scan() ([]Row, error) {
 
 // Update changes matching rows and returns the number changed.
 func (t *Table) Update(where func(Row) bool, set Row) (int, error) {
-	rows, err := t.Scan()
+	return t.updateRows(t.Scan, where, set)
+}
+
+// UpdateAt changes rows visible at snapshot.
+func (t *Table) UpdateAt(snapshot Snapshot, where func(Row) bool, set Row) (int, error) {
+	return t.updateRows(func() ([]Row, error) { return t.ScanAt(snapshot) }, where, set)
+}
+
+func (t *Table) updateRows(scan func() ([]Row, error), where func(Row) bool, set Row) (int, error) {
+	rows, err := scan()
 	if err != nil {
 		return 0, err
 	}
@@ -276,7 +285,16 @@ func (t *Table) Update(where func(Row) bool, set Row) (int, error) {
 }
 
 func (t *Table) DeleteWhere(where func(Row) bool) (int, error) {
-	rows, err := t.Scan()
+	return t.deleteRows(t.Scan, where)
+}
+
+// DeleteWhereAt deletes rows visible at snapshot.
+func (t *Table) DeleteWhereAt(snapshot Snapshot, where func(Row) bool) (int, error) {
+	return t.deleteRows(func() ([]Row, error) { return t.ScanAt(snapshot) }, where)
+}
+
+func (t *Table) deleteRows(scan func() ([]Row, error), where func(Row) bool) (int, error) {
+	rows, err := scan()
 	if err != nil {
 		return 0, err
 	}

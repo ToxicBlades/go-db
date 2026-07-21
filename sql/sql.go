@@ -985,6 +985,29 @@ func (e *Executor) Execute(input string) (Result, error) {
 }
 func (e *Executor) inTransaction() bool { return e.tx != nil }
 
+func (e *Executor) rows(t *kv.Table) ([]kv.Row, error) {
+	if e.tx != nil {
+		for _, state := range e.tx.tables {
+			if state.t == t {
+				return t.ScanAt(state.readAt)
+			}
+		}
+	}
+	return t.Scan()
+}
+
+func (e *Executor) snapshotOf(t *kv.Table) (kv.Snapshot, bool) {
+	if e.tx == nil {
+		return 0, false
+	}
+	for _, state := range e.tx.tables {
+		if state.t == t {
+			return state.readAt, true
+		}
+	}
+	return 0, false
+}
+
 // InTransaction reports whether this executor owns an open explicit
 // transaction. The server uses it to keep that transaction isolated.
 func (e *Executor) InTransaction() bool { return e.inTransaction() }
@@ -1281,7 +1304,12 @@ func (e *Executor) update(q Update) (Result, error) {
 			return Result{}, fmt.Errorf("unknown column %q", name)
 		}
 	}
-	n, err := t.Update(func(r kv.Row) bool { return match(q.Where, r) }, set)
+	var n int
+	if snapshot, ok := e.snapshotOf(t); ok {
+		n, err = t.UpdateAt(snapshot, func(r kv.Row) bool { return match(q.Where, r) }, set)
+	} else {
+		n, err = t.Update(func(r kv.Row) bool { return match(q.Where, r) }, set)
+	}
 	return Result{Affected: n}, err
 }
 func (e *Executor) delete(q Delete) (Result, error) {
@@ -1289,7 +1317,12 @@ func (e *Executor) delete(q Delete) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	n, err := t.DeleteWhere(func(r kv.Row) bool { return match(q.Where, r) })
+	var n int
+	if snapshot, ok := e.snapshotOf(t); ok {
+		n, err = t.DeleteWhereAt(snapshot, func(r kv.Row) bool { return match(q.Where, r) })
+	} else {
+		n, err = t.DeleteWhere(func(r kv.Row) bool { return match(q.Where, r) })
+	}
 	return Result{Affected: n}, err
 }
 func (e *Executor) drop(q DropTable) (Result, error) {
@@ -1416,7 +1449,7 @@ func (e *Executor) insert(q Insert) (Result, error) {
 		if s.Columns[0].Type != kv.IntType {
 			return Result{}, fmt.Errorf("insert must include key column %q", s.Columns[0].Name)
 		}
-		rows, scanErr := t.Scan()
+		rows, scanErr := e.rows(t)
 		if scanErr != nil {
 			return Result{}, scanErr
 		}
@@ -1432,12 +1465,12 @@ func (e *Executor) insert(q Insert) (Result, error) {
 	for _, c := range s.Columns {
 		cc := s.Constraints[c.Name]
 		if cc.References != nil && r[c.Name] != nil {
-			ref, e := e.table(cc.References.Table)
-			if e != nil {
-				return Result{}, e
+			ref, tableErr := e.table(cc.References.Table)
+			if tableErr != nil {
+				return Result{}, tableErr
 			}
 			found := false
-			for _, rr := range refRows(ref) {
+			for _, rr := range e.refRows(ref) {
 				if rr[cc.References.Column] == r[c.Name] {
 					found = true
 					break
@@ -1488,14 +1521,14 @@ func coerceValue(v any, typ kv.ColumnType) (any, error) {
 	}
 	return nil, fmt.Errorf("value has wrong type for %s", columnTypeName(typ))
 }
-func refRows(t *kv.Table) []kv.Row { r, _ := t.Scan(); return r }
+func (e *Executor) refRows(t *kv.Table) []kv.Row { r, _ := e.rows(t); return r }
 func (e *Executor) selectRows(q Select) (Result, error) {
 	t, err := e.table(q.Table)
 	if err != nil {
 		return Result{}, err
 	}
-	rows, err := t.Scan()
-	if q.Where != nil && q.JoinTable == "" && q.Where.Operator == "=" && q.Where.Column != "" && q.Where.Left == nil && q.Where.Right == nil {
+	rows, err := e.rows(t)
+	if e.tx == nil && q.Where != nil && q.JoinTable == "" && q.Where.Operator == "=" && q.Where.Column != "" && q.Where.Left == nil && q.Where.Right == nil {
 		if indexed, findErr := t.Find(q.Where.Column, q.Where.Value); findErr != nil {
 			return Result{}, findErr
 		} else if indexed != nil {
@@ -1506,13 +1539,13 @@ func (e *Executor) selectRows(q Select) (Result, error) {
 		return Result{}, fmt.Errorf("reading table %q: %w (database rows may have been created with a different schema; use a new database file or restore the matching schema)", q.Table, err)
 	}
 	if q.JoinTable != "" {
-		jt, e := e.table(q.JoinTable)
-		if e != nil {
-			return Result{}, e
+		jt, tableErr := e.table(q.JoinTable)
+		if tableErr != nil {
+			return Result{}, tableErr
 		}
-		jr, e := jt.Scan()
-		if e != nil {
-			return Result{}, e
+		jr, scanErr := e.rows(jt)
+		if scanErr != nil {
+			return Result{}, scanErr
 		}
 		var joined []kv.Row
 		for _, a := range rows {
