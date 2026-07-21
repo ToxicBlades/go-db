@@ -125,7 +125,7 @@ func Lex(input string) ([]Token, error) {
 		word := input[start:i]
 		upper := strings.ToUpper(word)
 		typ := Identifier
-		if upper == "SELECT" || upper == "FROM" || upper == "WHERE" || upper == "INSERT" || upper == "INTO" || upper == "VALUES" || upper == "SHOW" || upper == "TABLES" || upper == "LIST" || upper == "CREATE" || upper == "TABLE" || upper == "ALTER" || upper == "ADD" || upper == "COLUMN" || upper == "DROP" || upper == "RENAME" || upper == "TO" || upper == "UPDATE" || upper == "SET" || upper == "DELETE" || upper == "AND" || upper == "OR" {
+		if upper == "SELECT" || upper == "FROM" || upper == "WHERE" || upper == "INSERT" || upper == "INTO" || upper == "VALUES" || upper == "SHOW" || upper == "TABLES" || upper == "LIST" || upper == "CREATE" || upper == "TABLE" || upper == "ALTER" || upper == "ADD" || upper == "COLUMN" || upper == "DROP" || upper == "RENAME" || upper == "TO" || upper == "UPDATE" || upper == "SET" || upper == "DELETE" || upper == "AND" || upper == "OR" || upper == "EXPLAIN" {
 			typ = Keyword
 		}
 		if upper == "TRUE" || upper == "FALSE" {
@@ -147,6 +147,10 @@ func Lex(input string) ([]Token, error) {
 }
 
 type Statement interface{ isStatement() }
+type Explain struct{ Statement Statement }
+
+func (Explain) isStatement() {}
+
 type Select struct {
 	Columns []string
 	Table   string
@@ -223,6 +227,28 @@ func Parse(input string) (Statement, error) {
 	var s Statement
 	var err error
 	switch {
+	case strings.EqualFold(p.cur().Lexeme, "EXPLAIN"):
+		p.take()
+		if p.cur().Type == EOF || p.cur().Type == Semicolon {
+			err = fmt.Errorf("expected statement after EXPLAIN")
+			break
+		}
+		var inner Statement
+		switch {
+		case strings.EqualFold(p.cur().Lexeme, "SELECT"):
+			inner, err = p.selectStmt()
+		case strings.EqualFold(p.cur().Lexeme, "INSERT"):
+			inner, err = p.insertStmt()
+		case strings.EqualFold(p.cur().Lexeme, "UPDATE"):
+			inner, err = p.updateStmt()
+		case strings.EqualFold(p.cur().Lexeme, "DELETE"):
+			inner, err = p.deleteStmt()
+		default:
+			err = fmt.Errorf("EXPLAIN supports SELECT, INSERT, UPDATE, or DELETE")
+		}
+		if err == nil {
+			s = Explain{inner}
+		}
 	case strings.EqualFold(p.cur().Lexeme, "SELECT"):
 		s, err = p.selectStmt()
 	case strings.EqualFold(p.cur().Lexeme, "INSERT"):
@@ -621,6 +647,8 @@ func (e *Executor) Execute(input string) (Result, error) {
 		return Result{}, err
 	}
 	switch q := s.(type) {
+	case Explain:
+		return e.explain(q.Statement)
 	case Insert:
 		return e.insert(q)
 	case Select:
@@ -639,6 +667,36 @@ func (e *Executor) Execute(input string) (Result, error) {
 		return e.create(q)
 	}
 	return Result{}, fmt.Errorf("unsupported statement")
+}
+
+func (e *Executor) explain(s Statement) (Result, error) {
+	var plan string
+	switch q := s.(type) {
+	case Select:
+		filter := "none"
+		if q.Where != nil {
+			filter = "apply WHERE predicate"
+		}
+		plan = fmt.Sprintf("Seq Scan on %s; filter: %s; projection: %s", q.Table, filter, strings.Join(q.Columns, ", "))
+	case Insert:
+		plan = fmt.Sprintf("Insert into %s; columns: %s", q.Table, strings.Join(q.Columns, ", "))
+	case Update:
+		plan = fmt.Sprintf("Seq Scan on %s; update columns: %s", q.Table, mapKeys(q.Set))
+	case Delete:
+		plan = fmt.Sprintf("Seq Scan on %s; delete matching rows", q.Table)
+	default:
+		return Result{}, fmt.Errorf("unsupported statement for EXPLAIN")
+	}
+	return Result{Columns: []string{"plan"}, Rows: []kv.Row{{"plan": plan}}}, nil
+}
+
+func mapKeys(m map[string]any) string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, ", ")
 }
 func match(w *Condition, r kv.Row) bool {
 	if w == nil {
