@@ -9,9 +9,11 @@ working storage, indexing, typed tables, SQL, durability, and a TCP interface.
 - An LRU buffer pool with dirty-page flushing (`storage/buffer_pool.go`).
 - An append-only key/value store with tombstones, an in-memory B+Tree index,
   and write-ahead logging (`kv/`).
-- Typed rows and schemas supporting `int`, `string`, and `bool` (`kv/table.go`).
+- Typed rows and schemas supporting `int`, `string`, `bool`, `float`, bytes,
+  and timestamps (`kv/table.go`).
 - A small SQL lexer, parser, and executor supporting `SELECT`, `INSERT`,
-  `WHERE`, `ORDER BY`, `LIMIT`/`OFFSET`, grouped aggregates, `EXPLAIN`, and
+  `WHERE`, nested-loop inner joins, batched transactional requests,
+  `ORDER BY`, `LIMIT`/`OFFSET`, grouped aggregates, `EXPLAIN`, and
   `SHOW TABLES`/`LIST TABLES` (`sql/`).
 - Backup and restore commands that snapshot the database file and its WAL sidecar (`kv/`, `cmd/mydb/`).
 - A line-oriented TCP server accepting plain SQL or JSON requests (`server/`).

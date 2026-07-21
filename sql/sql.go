@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"mydb/kv"
@@ -157,14 +158,15 @@ type ExplainTable struct{ Table string }
 func (ExplainTable) isStatement() {}
 
 type Select struct {
-	Columns []string
-	Table   string
-	Where   *Condition
-	OrderBy string
-	Desc    bool
-	Limit   int
-	Offset  int
-	GroupBy []string
+	Columns                        []string
+	Table                          string
+	Where                          *Condition
+	OrderBy                        string
+	Desc                           bool
+	Limit                          int
+	Offset                         int
+	GroupBy                        []string
+	JoinTable, JoinLeft, JoinRight string
 }
 
 func (Select) isStatement() {}
@@ -343,6 +345,10 @@ func (p *parser) createStmt() (Statement, error) {
 			ct = kv.BoolType
 		case "FLOAT", "REAL", "DOUBLE":
 			ct = kv.FloatType
+		case "BYTES", "BLOB":
+			ct = kv.BytesType
+		case "TIMESTAMP":
+			ct = kv.TimestampType
 		default:
 			return nil, fmt.Errorf("unknown type %q", typ)
 		}
@@ -421,6 +427,10 @@ func (p *parser) alterStmt() (Statement, error) {
 			ct = kv.BoolType
 		case "FLOAT", "REAL", "DOUBLE":
 			ct = kv.FloatType
+		case "BYTES", "BLOB":
+			ct = kv.BytesType
+		case "TIMESTAMP":
+			ct = kv.TimestampType
 		default:
 			return nil, fmt.Errorf("unknown type %q", ty)
 		}
@@ -591,11 +601,30 @@ func (p *parser) selectStmt() (Statement, error) {
 	}
 	table := p.cur().Lexeme
 	p.take()
+	var joinTable, joinLeft, joinRight string
+	if strings.EqualFold(p.cur().Lexeme, "JOIN") || (strings.EqualFold(p.cur().Lexeme, "INNER") && strings.EqualFold(p.t[p.p+1].Lexeme, "JOIN")) {
+		if strings.EqualFold(p.cur().Lexeme, "INNER") {
+			p.take()
+		}
+		p.take()
+		joinTable = p.cur().Lexeme
+		p.take()
+		if e := p.want("ON"); e != nil {
+			return nil, e
+		}
+		joinLeft = p.cur().Lexeme
+		p.take()
+		if e := p.want("="); e != nil {
+			return nil, e
+		}
+		joinRight = p.cur().Lexeme
+		p.take()
+	}
 	w, err := p.condition()
 	if err != nil {
 		return nil, err
 	}
-	q := Select{Columns: cols, Table: table, Where: w, Limit: -1}
+	q := Select{Columns: cols, Table: table, Where: w, Limit: -1, JoinTable: joinTable, JoinLeft: joinLeft, JoinRight: joinRight}
 	if strings.EqualFold(p.cur().Lexeme, "GROUP") {
 		p.take()
 		if e := p.want("BY"); e != nil {
@@ -721,6 +750,67 @@ type Executor struct{ Tables map[string]*kv.Table }
 
 func NewExecutor(tables map[string]*kv.Table) *Executor { return &Executor{tables} }
 func (e *Executor) Execute(input string) (Result, error) {
+	parts := splitStatements(input)
+	if len(parts) == 0 {
+		return Result{}, fmt.Errorf("empty request")
+	}
+	if len(parts) == 1 {
+		return e.executeOne(parts[0])
+	}
+	type snap struct {
+		t    *kv.Table
+		rows []kv.Row
+	}
+	var snaps []snap
+	for _, t := range e.Tables {
+		rows, err := t.Scan()
+		if err != nil {
+			return Result{}, err
+		}
+		snaps = append(snaps, snap{t, rows})
+	}
+	var out Result
+	for _, part := range parts {
+		r, err := e.executeOne(part)
+		if err != nil {
+			for _, s := range snaps {
+				_, _ = s.t.DeleteWhere(func(kv.Row) bool { return true })
+				for _, row := range s.rows {
+					_ = s.t.Insert(fmt.Sprint(row[s.t.Schema().Columns[0].Name]), row)
+				}
+			}
+			return Result{}, fmt.Errorf("transaction rolled back: %w", err)
+		}
+		out = r
+	}
+	return out, nil
+}
+func splitStatements(s string) []string {
+	var out []string
+	start := 0
+	quote := byte(0)
+	for i := 0; i < len(s); i++ {
+		if quote != 0 {
+			if s[i] == quote {
+				quote = 0
+			}
+			continue
+		}
+		if s[i] == '\'' || s[i] == '"' {
+			quote = s[i]
+		} else if s[i] == ';' {
+			if x := strings.TrimSpace(s[start:i]); x != "" {
+				out = append(out, x)
+			}
+			start = i + 1
+		}
+	}
+	if x := strings.TrimSpace(s[start:]); x != "" {
+		out = append(out, x)
+	}
+	return out
+}
+func (e *Executor) executeOne(input string) (Result, error) {
 	s, err := Parse(input)
 	if err != nil {
 		return Result{}, err
@@ -801,6 +891,10 @@ func columnTypeName(t kv.ColumnType) string {
 		return "BOOL"
 	case kv.FloatType:
 		return "FLOAT"
+	case kv.BytesType:
+		return "BYTES"
+	case kv.TimestampType:
+		return "TIMESTAMP"
 	default:
 		return "UNKNOWN"
 	}
@@ -824,10 +918,10 @@ func match(w *Condition, r kv.Row) bool {
 	if w.Logic == "OR" {
 		return match(w.Left, r) || match(w.Right, r)
 	}
-	if r[w.Column] == nil || w.Value == nil {
+	if lookup(r, w.Column) == nil || w.Value == nil {
 		return false
 	}
-	cmp := compare(r[w.Column], w.Value)
+	cmp := compare(lookup(r, w.Column), w.Value)
 	switch w.Operator {
 	case "=":
 		return cmp == 0
@@ -912,7 +1006,25 @@ func (e *Executor) update(q Update) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	n, err := t.Update(func(r kv.Row) bool { return match(q.Where, r) }, q.Set)
+	set := kv.Row{}
+	for name, v := range q.Set {
+		found := false
+		for _, c := range t.Schema().Columns {
+			if strings.EqualFold(c.Name, name) {
+				cv, ce := coerceValue(v, c.Type)
+				if ce != nil {
+					return Result{}, ce
+				}
+				set[name] = cv
+				found = true
+				break
+			}
+		}
+		if !found {
+			return Result{}, fmt.Errorf("unknown column %q", name)
+		}
+	}
+	n, err := t.Update(func(r kv.Row) bool { return match(q.Where, r) }, set)
 	return Result{Affected: n}, err
 }
 func (e *Executor) delete(q Delete) (Result, error) {
@@ -1022,7 +1134,18 @@ func (e *Executor) insert(q Insert) (Result, error) {
 	}
 	r := kv.Row{}
 	for i, c := range q.Columns {
-		r[c] = q.Values[i]
+		v := q.Values[i]
+		for _, sc := range t.Schema().Columns {
+			if strings.EqualFold(sc.Name, c) {
+				var ce error
+				v, ce = coerceValue(v, sc.Type)
+				if ce != nil {
+					return Result{}, ce
+				}
+				break
+			}
+		}
+		r[c] = v
 	}
 	s := t.Schema()
 	if len(s.Columns) == 0 {
@@ -1073,6 +1196,41 @@ func (e *Executor) insert(q Insert) (Result, error) {
 	}
 	return Result{Affected: 1}, nil
 }
+func coerceValue(v any, typ kv.ColumnType) (any, error) {
+	if v == nil {
+		return nil, nil
+	}
+	switch typ {
+	case kv.FloatType:
+		if i, ok := v.(int); ok {
+			return float64(i), nil
+		}
+		if _, ok := v.(float64); ok {
+			return v, nil
+		}
+	case kv.BytesType:
+		if s, ok := v.(string); ok {
+			return []byte(s), nil
+		}
+		if b, ok := v.([]byte); ok {
+			return b, nil
+		}
+	case kv.TimestampType:
+		if s, ok := v.(string); ok {
+			t, e := time.Parse(time.RFC3339, s)
+			if e != nil {
+				return nil, fmt.Errorf("invalid timestamp %q", s)
+			}
+			return t.UTC(), nil
+		}
+		if t, ok := v.(time.Time); ok {
+			return t, nil
+		}
+	default:
+		return v, nil
+	}
+	return nil, fmt.Errorf("value has wrong type for %s", columnTypeName(typ))
+}
 func refRows(t *kv.Table) []kv.Row { r, _ := t.Scan(); return r }
 func (e *Executor) selectRows(q Select) (Result, error) {
 	t, err := e.table(q.Table)
@@ -1082,6 +1240,36 @@ func (e *Executor) selectRows(q Select) (Result, error) {
 	rows, err := t.Scan()
 	if err != nil {
 		return Result{}, fmt.Errorf("reading table %q: %w (database rows may have been created with a different schema; use a new database file or restore the matching schema)", q.Table, err)
+	}
+	if q.JoinTable != "" {
+		jt, e := e.table(q.JoinTable)
+		if e != nil {
+			return Result{}, e
+		}
+		jr, e := jt.Scan()
+		if e != nil {
+			return Result{}, e
+		}
+		var joined []kv.Row
+		for _, a := range rows {
+			for _, b := range jr {
+				if compare(lookup(a, q.JoinLeft), lookup(b, q.JoinRight)) == 0 {
+					n := kv.Row{}
+					for k, v := range a {
+						n[k] = v
+					}
+					for k, v := range b {
+						if _, ok := n[k]; ok {
+							n[q.JoinTable+"."+k] = v
+						} else {
+							n[k] = v
+						}
+					}
+					joined = append(joined, n)
+				}
+			}
+		}
+		rows = joined
 	}
 	schema := t.Schema()
 	var cols []string
@@ -1100,7 +1288,7 @@ func (e *Executor) selectRows(q Select) (Result, error) {
 	}
 	for _, c := range q.GroupBy {
 		for _, r := range filtered {
-			if _, ok := r[c]; !ok {
+			if lookup(r, c) == nil {
 				return Result{}, fmt.Errorf("unknown column %q", c)
 			}
 			break
@@ -1139,14 +1327,23 @@ func (e *Executor) selectRows(q Select) (Result, error) {
 	for _, r := range filtered {
 		selected := kv.Row{}
 		for _, c := range cols {
-			if _, ok := r[c]; !ok {
+			if lookup(r, c) == nil {
 				return Result{}, fmt.Errorf("unknown column %q", c)
 			}
-			selected[c] = r[c]
+			selected[c] = lookup(r, c)
 		}
 		out.Rows = append(out.Rows, selected)
 	}
 	return applyPagingAndOrder(out, q)
+}
+func lookup(r kv.Row, name string) any {
+	if v, ok := r[name]; ok {
+		return v
+	}
+	if i := strings.Index(name, "."); i >= 0 {
+		return r[name[i+1:]]
+	}
+	return nil
 }
 
 func isAggregate(s string) bool {

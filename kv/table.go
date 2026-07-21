@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"time"
 )
 
 // ColumnType is the type of a table column.
@@ -15,13 +16,17 @@ const (
 	StringType
 	BoolType
 	FloatType
+	BytesType
+	TimestampType
 )
 
 const (
-	TypeInt    = IntType
-	TypeString = StringType
-	TypeBool   = BoolType
-	TypeFloat  = FloatType
+	TypeInt       = IntType
+	TypeString    = StringType
+	TypeBool      = BoolType
+	TypeFloat     = FloatType
+	TypeBytes     = BytesType
+	TypeTimestamp = TimestampType
 )
 
 // Column describes one field in a Schema. Column order is the on-disk order.
@@ -42,7 +47,7 @@ type Schema struct {
 	Constraints map[string]ColumnConstraint
 }
 
-// Row is a named set of column values. Values must be int, string, or bool.
+// Row is a named set of column values.
 type Row map[string]any
 
 // Table gives typed row semantics to a Store. The key is the table's primary key.
@@ -208,6 +213,10 @@ func (t *Table) Alter(schema Schema) error {
 					nr[c.Name] = false
 				case FloatType:
 					nr[c.Name] = float64(0)
+				case BytesType:
+					nr[c.Name] = []byte{}
+				case TimestampType:
+					nr[c.Name] = time.Time{}
 				}
 			}
 		}
@@ -225,7 +234,7 @@ func (s Schema) validate() error {
 		if c.Name == "" || seen[c.Name] {
 			return fmt.Errorf("invalid or duplicate column %q", c.Name)
 		}
-		if c.Type < IntType || c.Type > FloatType {
+		if c.Type < IntType || c.Type > TimestampType {
 			return fmt.Errorf("invalid type for column %q", c.Name)
 		}
 		seen[c.Name] = true
@@ -290,6 +299,23 @@ func (t *Table) encode(row Row) ([]byte, error) {
 			if err := binary.Write(&b, binary.LittleEndian, f); err != nil {
 				return nil, err
 			}
+		case BytesType:
+			v, ok := v.([]byte)
+			if !ok {
+				return nil, fmt.Errorf("column %q expects bytes", c.Name)
+			}
+			if err := binary.Write(&b, binary.LittleEndian, uint32(len(v))); err != nil {
+				return nil, err
+			}
+			b.Write(v)
+		case TimestampType:
+			v, ok := v.(time.Time)
+			if !ok {
+				return nil, fmt.Errorf("column %q expects timestamp", c.Name)
+			}
+			if err := binary.Write(&b, binary.LittleEndian, v.UnixNano()); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return b.Bytes(), nil
@@ -341,6 +367,24 @@ func (t *Table) decode(data []byte) (Row, error) {
 			p += 8
 			// Convert the IEEE bits without importing math in the common path.
 			r[c.Name] = math.Float64frombits(r[c.Name].(uint64))
+		case BytesType:
+			if p+4 > len(data) {
+				return nil, fmt.Errorf("column %q (bytes): missing length", c.Name)
+			}
+			n := int(binary.LittleEndian.Uint32(data[p : p+4]))
+			p += 4
+			if p+n > len(data) {
+				return nil, fmt.Errorf("column %q (bytes): invalid length", c.Name)
+			}
+			r[c.Name] = append([]byte(nil), data[p:p+n]...)
+			p += n
+		case TimestampType:
+			if p+8 > len(data) {
+				return nil, fmt.Errorf("column %q (timestamp): need 8 bytes", c.Name)
+			}
+			ns := int64(binary.LittleEndian.Uint64(data[p : p+8]))
+			p += 8
+			r[c.Name] = time.Unix(0, ns).UTC()
 		}
 	}
 	if p != len(data) {
